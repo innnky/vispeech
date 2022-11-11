@@ -22,14 +22,13 @@ from text.symbols import ctc_symbols
 class LengthRegulator(nn.Module):
     """Length Regulator"""
 
-    def __init__(self, hoplen=256, sr=24000):
+    def __init__(self, hoplen, sr):
         super(LengthRegulator, self).__init__()
         self.hoplen = hoplen
         self.sr = sr
 
-    def LR(self, x, notepitch, duration, x_lengths):
+    def LR(self, x, duration, x_lengths):
         output = list()
-        frame_pitch = list()
         mel_len = list()
         x = torch.transpose(x, 1, -1)
         frame_lengths = list()
@@ -39,25 +38,15 @@ class LengthRegulator(nn.Module):
             output.append(expanded)
             frame_lengths.append(expanded.shape[0])
 
-        for batch, expand_target in zip(notepitch, duration):
-            expanded_pitch = self.expand_pitch(batch, expand_target)
-            frame_pitch.append(expanded_pitch)
 
         max_len = max(frame_lengths)
         output_padded = torch.FloatTensor(x.size(0), max_len, x.size(2))
         output_padded.zero_()
-        frame_pitch_padded = torch.FloatTensor(notepitch.size(0), max_len)
-        frame_pitch_padded.zero_()
         for i in range(output_padded.size(0)):
             output_padded[i, :frame_lengths[i], :] = output[i]
-        for i in range(frame_pitch_padded.size(0)):
-            length = len(frame_pitch[i])
-            frame_pitch[i].extend([0] * (max_len - length))
-            frame_pitch_tensor = torch.LongTensor(frame_pitch[i])
-            frame_pitch_padded[i] = frame_pitch_tensor
         output_padded = torch.transpose(output_padded, 1, -1)
 
-        return output_padded, frame_pitch_padded, torch.LongTensor(frame_lengths)
+        return output_padded, torch.LongTensor(frame_lengths)
 
     def expand_pitch(self, batch, predicted):
         out = list()
@@ -94,11 +83,10 @@ class LengthRegulator(nn.Module):
         out = torch.cat(out, 0)
         return out
 
-    def forward(self, x, notepitch, duration, x_lengths):
+    def forward(self, x, duration, x_lengths):
 
-        notepitch = torch.detach(notepitch)
-        output, frame_pitch, x_lengths = self.LR(x, notepitch, duration, x_lengths)
-        return output, frame_pitch, x_lengths
+        output, x_lengths = self.LR(x, duration, x_lengths)
+        return output, x_lengths
 
 
 class StochasticDurationPredictor(nn.Module):
@@ -186,14 +174,13 @@ class DurationPredictor(nn.Module):
   def __init__(self, in_channels, filter_channels, kernel_size, p_dropout, gin_channels=0):
     super().__init__()
 
-    self.in_channels = in_channels + 1
     self.filter_channels = filter_channels
     self.kernel_size = kernel_size
     self.p_dropout = p_dropout
     self.gin_channels = gin_channels
 
     self.drop = nn.Dropout(p_dropout)
-    self.conv_1 = nn.Conv1d(in_channels + 1, filter_channels, kernel_size, padding=kernel_size//2)
+    self.conv_1 = nn.Conv1d(in_channels, filter_channels, kernel_size, padding=kernel_size//2)
     self.norm_1 = modules.LayerNorm(filter_channels)
     self.conv_2 = nn.Conv1d(filter_channels, filter_channels, kernel_size, padding=kernel_size//2)
     self.norm_2 = modules.LayerNorm(filter_channels)
@@ -202,11 +189,8 @@ class DurationPredictor(nn.Module):
     if gin_channels != 0:
       self.cond = nn.Conv1d(gin_channels, in_channels, 1)
 
-  def forward(self, x, x_mask, notedur, g=None):
+  def forward(self, x, x_mask, g=None):
     x = torch.detach(x)
-    notedur = torch.detach(notedur)
-    notedur = notedur.unsqueeze(1)
-    x = torch.cat((x, notedur), 1)
     if g is not None:
       g = torch.detach(g)
       x = x + self.cond(g)
@@ -332,19 +316,9 @@ class TextEncoder(nn.Module):
       kernel_size,
       p_dropout)
     self.proj = nn.Conv1d(hidden_channels, out_channels * 2, 1)
-    self.pitch_embedding = nn.Embedding(
-        121, 192
-    )
-    self.duration_embedding = nn.Embedding(
-        1200, 192
-    )
 
-  def forward(self, x, x_lengths, notepitch, notedur):
-    notepitch = self.pitch_embedding(notepitch)
-    notedur = ((notedur * 172) - 3).clamp_min_(0).long()
-    notedur = self.duration_embedding(notedur)
+  def forward(self, x, x_lengths):
     x = self.emb(x) * math.sqrt(self.hidden_channels)  # [b, t, h]
-    x = x + notedur + notepitch
     x = torch.transpose(x, 1, -1)  # [b, h, t]
     x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x.size(2)), 1).to(x.dtype)
     x = self.encoder(x * x_mask, x_mask)
@@ -713,17 +687,17 @@ class SynthesizerTrn(nn.Module):
     if n_speakers > 1:
       self.emb_g = nn.Embedding(n_speakers, gin_channels)
 
-  def forward(self, phonemes, phonemes_lengths, notepitch, notedur, phndur, spec, spec_lengths, sid=None):
+  def forward(self, phonemes, phonemes_lengths, f0, phndur, spec, spec_lengths, sid=None):
     g = None
-    x, x_mask = self.enc_p(phonemes, phonemes_lengths, notepitch, notedur)
+    x, x_mask = self.enc_p(phonemes, phonemes_lengths)
     w = phndur.unsqueeze(1)
     logw_ = w * x_mask
-    logw = self.dp(x, x_mask, notedur, g=g)
-    logw = torch.mul(logw.squeeze(1), notedur).unsqueeze(1)
+    logw = self.dp(x, x_mask, g=g)
+    # 直接预测时长（s）
     l_loss = torch.sum((logw - logw_)**2, [1, 2])
     x_mask_sum = torch.sum(x_mask)
     l_length = l_loss / x_mask_sum
-    x_frame, frame_pitch, x_lengths = self.lr(x, notepitch, phndur, phonemes_lengths)
+    x_frame, x_lengths = self.lr(x, phndur, phonemes_lengths)
     x_frame = x_frame.to(x.device)
     x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x_frame.size(2)), 1).to(x.dtype)  # 更新x_mask矩阵
     x_mask = x_mask.to(x.device)
@@ -740,15 +714,12 @@ class SynthesizerTrn(nn.Module):
     x_frame = x_frame + pe
     pred_pitch, pitch_embedding = self.pitch_net(x_frame, x_mask)
     lf0 = torch.unsqueeze(pred_pitch, -1)
-    gt_lf0 = torch.log(440 * (2 ** ((frame_pitch - 69) / 12)))
+    # f0要做log 要留意padding
+    gt_lf0 = torch.log(f0)
     gt_lf0 = gt_lf0.to(x.device)
     x_mask_sum = torch.sum(x_mask)
     lf0 = lf0.squeeze()
     l_pitch = torch.sum((gt_lf0 - lf0) ** 2, 1) / x_mask_sum
-    frame_pitch = frame_pitch + 1e-6
-    frame_pitch = torch.log(frame_pitch)
-    frame_pitch = torch.unsqueeze(frame_pitch, -1)
-    frame_pitch = frame_pitch.to(x.device)
     x_frame = self.frame_prior_net(x_frame, pitch_embedding, x_mask)
     x_frame = x_frame.transpose(1, 2)
     m_p, logs_p = self.project(x_frame, x_mask)
@@ -774,15 +745,14 @@ class SynthesizerTrn(nn.Module):
     # np.save("phonemes.npy",phonemes.cpu().detach().numpy())
     return o, l_length, l_pitch, attn, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q), ctc_loss
 
-  def infer(self, phonemes, phonemes_lengths, notepitch,  notedur,
+  def infer(self, phonemes, phonemes_lengths,
             sid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None):
     g = None
-    x, x_mask = self.enc_p(phonemes, phonemes_lengths, notepitch, notedur)
+    x, x_mask = self.enc_p(phonemes, phonemes_lengths)
 
-    logw = self.dp(x, x_mask, notedur, g=g)
-    logw = torch.mul(logw.squeeze(1), notedur).unsqueeze(1)
+    logw = self.dp(x, x_mask, g=g)
     w = logw * x_mask * length_scale
-    x_frame, frame_pitch, x_lengths = self.lr(x, notepitch, w, phonemes_lengths)
+    x_frame, frame_pitch, x_lengths = self.lr(x, w, phonemes_lengths)
     x_frame = x_frame.to(x.device)
     x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x_frame.size(2)), 1).to(x.dtype)
     x_mask = x_mask.to(x.device)
