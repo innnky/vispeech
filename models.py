@@ -48,35 +48,13 @@ class LengthRegulator(nn.Module):
 
         return output_padded, torch.LongTensor(frame_lengths)
 
-    def expand_pitch(self, batch, predicted):
-        out = list()
-        predicted = predicted.squeeze()
-        for i, vec in enumerate(batch):
-            duration = predicted[i].item()
-            if self.sr * duration > 0:
-                expand_size = max((self.sr * duration) / self.hoplen, 1)
-            elif duration == 0:
-                expand_size = 0
-            else:
-                expand_size = 1
-            vec_expand = vec.expand(max(int(expand_size), 0),1).squeeze(1).cpu().numpy()
-            out.extend(vec_expand)
-
-        torch.LongTensor(out).to(vec.device)
-        return out
 
     def expand(self, batch, predicted):
         out = list()
         predicted = predicted.squeeze()
         for i, vec in enumerate(batch):
 
-            duration = predicted[i].item()
-            if self.sr * duration > 0:
-                expand_size = max((self.sr * duration)/self.hoplen, 1)
-            elif duration == 0:
-                expand_size = 0
-            else:
-                expand_size = 1
+            expand_size = predicted[i].item()
             vec_expand = vec.expand(max(int(expand_size), 0), -1)
             out.append(vec_expand)
 
@@ -692,8 +670,7 @@ class SynthesizerTrn(nn.Module):
   def forward(self, phonemes, phonemes_lengths, f0, phndur, spec, spec_lengths, sid=None):
     g = None
     x, x_mask = self.enc_p(phonemes, phonemes_lengths)
-    phndur =torch.FloatTensor(phndur.detach() * self.hop_length / self.sampling_rate)
-    w = phndur.unsqueeze(1)
+    w = torch.FloatTensor(phndur.detach() * self.hop_length / self.sampling_rate).unsqueeze(1)
     logw_ = w * x_mask
     logw = self.dp(x, x_mask, g=g)
     # 直接预测时长（s）
@@ -755,6 +732,7 @@ class SynthesizerTrn(nn.Module):
 
     logw = self.dp(x, x_mask, g=g)
     w = logw * x_mask * length_scale
+    w = torch.ceil(w * self.sampling_rate / self.hop_length)
     x_frame, frame_pitch, x_lengths = self.lr(x, w, phonemes_lengths)
     x_frame = x_frame.to(x.device)
     x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x_frame.size(2)), 1).to(x.dtype)
