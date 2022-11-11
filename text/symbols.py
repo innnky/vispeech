@@ -1,12 +1,10 @@
-# mandarin phonemes from wesing dataset
-symbols = ['d', 'm', 'k', 's', 'ua', 'u', 'sh', 'ao', 'ch', 'ing', 'in', 'w', 'o', 'ia', 've', 'vn', 'n', 'y', 'z',
-            'uan', 'an', 'uai', 'uang', 'uo', 'er', 'iao', 'iong', 'ng', 'h', 'j', 'r', 'ui', 'en', 'f', 'c', 'ian',
-            'eng', 'iu', 'a', 'x', 'v', 'ai', 'ou', 'un', 'van', 'l', 'ong', 'ei', 'ie', 'b', 'e', 'g', 'p', 'q', 't',
-            'i', 'ang', 'zh', 'iang', 'SP', 'AP']
+# cjke_cleaners2
+_pad        = '_'
+_punctuation = ',.!?-~…'
+_letters = 'NQabdefghijklmnopstuvwxyzɑæʃʑçɯɪɔɛɹðəɫɥɸʊɾʒθβŋɦ⁼ʰ`^#*=ˈˌ→↓↑ '
 
-ctc_symbols = ['d', 'm', 'k', 's', 'ua', 'u', 'sh', 'ao', 'ch', 'ing', 'in', 'w', 'o', 'ia', 've', 'vn', 'n', 'y', 'z',
-            'uan', 'an', 'uai', 'uang', 'uo', 'er', 'iao', 'iong', 'ng', 'h', 'j', 'r', 'ui', 'en', 'f', 'c', 'ian',
-            'eng', 'iu', 'a', 'x', 'v', 'ai', 'ou', 'un', 'van', 'l', 'ong', 'ei', 'ie', 'b', 'e', 'g', 'p', 'q', 't',
-            'i', 'ang', 'zh', 'iang', 'SP', 'AP', '-']
+# Export all symbols:
+symbols = [_pad] + list(_punctuation) + list(_letters)
+
 # Special symbol ids
-# SPACE_ID = symbols.index(" ")
+SPACE_ID = symbols.index(" ")

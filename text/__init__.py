@@ -7,22 +7,6 @@ from text.symbols import symbols
 _symbol_to_id = {s: i for i, s in enumerate(symbols)}
 _id_to_symbol = {i: s for i, s in enumerate(symbols)}
 
-def phonemes_to_sequence(phonemes):
-  '''Converts a string of text to a sequence of IDs corresponding to the symbols in the text.
-    Args:
-      text: string to convert to a sequence
-      cleaner_names: names of the cleaner functions to run the text through
-    Returns:
-      List of integers corresponding to the symbols in the text
-  '''
-
-  sequence = []
-  phonemes = phonemes.split(" ")
-  for symbol in phonemes:
-    symbol_id = _symbol_to_id[symbol]
-    sequence += [symbol_id]
-  return sequence
-
 
 def text_to_sequence(text, cleaner_names):
   '''Converts a string of text to a sequence of IDs corresponding to the symbols in the text.
@@ -33,9 +17,11 @@ def text_to_sequence(text, cleaner_names):
       List of integers corresponding to the symbols in the text
   '''
   sequence = []
-  # 如果输入文本内容不是clean_text,则转换成clean_text
+
   clean_text = _clean_text(text, cleaner_names)
   for symbol in clean_text:
+    if symbol not in _symbol_to_id.keys():
+      continue
     symbol_id = _symbol_to_id[symbol]
     sequence += [symbol_id]
   return sequence
@@ -48,7 +34,7 @@ def cleaned_text_to_sequence(cleaned_text):
     Returns:
       List of integers corresponding to the symbols in the text
   '''
-  sequence = [_symbol_to_id[symbol] for symbol in cleaned_text]
+  sequence = [_symbol_to_id[symbol] for symbol in cleaned_text if symbol in _symbol_to_id.keys()]
   return sequence
 
 

@@ -663,6 +663,8 @@ class SynthesizerTrn(nn.Module):
     self.segment_size = segment_size
     self.n_speakers = n_speakers
     self.gin_channels = gin_channels
+    self.hop_length = hop_length
+    self.sampling_rate = sampling_rate
 
     self.use_sdp = use_sdp
     self.enc_p = TextEncoder(n_vocab,
@@ -690,6 +692,7 @@ class SynthesizerTrn(nn.Module):
   def forward(self, phonemes, phonemes_lengths, f0, phndur, spec, spec_lengths, sid=None):
     g = None
     x, x_mask = self.enc_p(phonemes, phonemes_lengths)
+    phndur =torch.FloatTensor(phndur.detach() * self.hop_length / self.sampling_rate)
     w = phndur.unsqueeze(1)
     logw_ = w * x_mask
     logw = self.dp(x, x_mask, g=g)
@@ -784,7 +787,7 @@ class SynthesizerTrn(nn.Module):
     z_p = m_p + torch.randn_like(m_p) * torch.exp(logs_p) * noise_scale
     z = self.flow(z_p, x_mask, g=g, reverse=True)
     o = self.dec((z * x_mask)[:, :, :max_len], g=g)
-    
+
     return o, x_mask, (z, z_p, m_p, logs_p)
 
   def voice_conversion(self, y, y_lengths, sid_src, sid_tgt):

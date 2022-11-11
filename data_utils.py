@@ -6,10 +6,10 @@ import numpy as np
 import torch
 import torch.utils.data
 
-import commons 
+import commons
 from mel_processing import spectrogram_torch
 from utils import load_wav_to_torch, load_filepaths_and_text
-from text import phonemes_to_sequence
+from text import cleaned_text_to_sequence
 from text.pitch_id import pitch_id
 
 
@@ -24,11 +24,11 @@ class TextAudioLoader(torch.utils.data.Dataset):
         self.audiopaths_and_text = load_filepaths_and_text(audiopaths_and_text)
         self.max_wav_value  = hparams.max_wav_value
         self.sampling_rate  = hparams.sampling_rate
-        self.filter_length  = hparams.filter_length 
-        self.hop_length     = hparams.hop_length 
+        self.filter_length  = hparams.filter_length
+        self.hop_length     = hparams.hop_length
         self.win_length     = hparams.win_length
         self.sampling_rate  = hparams.sampling_rate
-        self.wavs_path      = hparams.wavs_path
+
 
         # self.add_blank = hparams.add_blank
         # self.min_text_len = getattr(hparams, "min_text_len", 1)
@@ -50,11 +50,10 @@ class TextAudioLoader(torch.utils.data.Dataset):
         audiopath_and_text_new = []
         # 取出每一行的音频地址audiopath和音频内容text
 
-        for audiopath, text, phonemes, note_pitch, note_dur, phn_dur, slur_flag in self.audiopaths_and_text:
+        for wav_path, phonemes, phn_dur in self.audiopaths_and_text:
             # get_size获取文件大小（字节数），这里计算wav的长度，根据上方计算公式得出结果
-            wav_path = os.path.join(self.wavs_path, audiopath)+".wav"
             lengths.append(os.path.getsize(wav_path) // (2 * self.hop_length))
-            audiopath_and_text_new.append([wav_path, text, phonemes, note_pitch, note_dur, phn_dur, slur_flag])
+            audiopath_and_text_new.append([wav_path, phonemes, phn_dur])
         self.lengths = lengths
         self.audiopaths_and_text = audiopath_and_text_new
 
@@ -62,22 +61,20 @@ class TextAudioLoader(torch.utils.data.Dataset):
     def get_audio_text_pair(self, audiopath_and_text):
         # separate filename and text
 
-        audiopath,  phonemes, note_pitch, note_dur, phn_dur, slur_flag = \
-            audiopath_and_text[0], audiopath_and_text[2], audiopath_and_text[3],\
-            audiopath_and_text[4], audiopath_and_text[5], audiopath_and_text[6]
+        wav_path, phonemes, phn_dur = audiopath_and_text
 
         phonemes = self.get_phonemes(phonemes)
-        note_pitch = self.get_pitchid(note_pitch)
-        note_dur, phn_dur, slur_flag = self.get_duration_flag(note_dur, phn_dur, slur_flag)
+        phn_dur = self.get_duration_flag( phn_dur)
 
 
 
         # 得到文本内容、频谱图、音频数据
-        spec, wav = self.get_audio(audiopath)
-        return phonemes, note_pitch, note_dur, phn_dur, slur_flag, spec, wav
+        spec, wav = self.get_audio(wav_path)
+        f0 = torch.FloatTensor(np.load(f"{wav_path}.f0.npy"))
+        return phonemes,f0, phn_dur, spec, wav
 
     def get_phonemes(self, phonemes):
-        phonemes_norm = phonemes_to_sequence(phonemes)
+        phonemes_norm = cleaned_text_to_sequence(phonemes)
         phonemes_norm = torch.LongTensor(phonemes_norm)
         return phonemes_norm
 
@@ -90,14 +87,10 @@ class TextAudioLoader(torch.utils.data.Dataset):
             note_pitch_new.append(pitch)
         return torch.FloatTensor(np.array(note_pitch_new).astype(np.float32))
 
-    def get_duration_flag(self, note_dur, phn_dur, slur_flag):
-        note_dur = note_dur.split(" ")
-        phn_dur = phn_dur.split(" ")
-        slur_flag = slur_flag.split(" ")
-        note_dur = torch.FloatTensor(np.array(note_dur).astype(np.float32))
-        phn_dur = torch.FloatTensor(np.array(phn_dur).astype(np.float32))
-        slur_flag = torch.FloatTensor(np.array(slur_flag).astype(np.float32))
-        return note_dur, phn_dur, slur_flag
+    def get_duration_flag(self, phn_dur):
+        phn_dur = [int(i) for i in phn_dur.split(" ")]
+        phn_dur = torch.LongTensor(phn_dur)
+        return  phn_dur
 
 
     def get_audio(self, filename):
@@ -143,45 +136,36 @@ class TextAudioCollate():
         """
         # Right zero-pad all one-hot text sequences to max input length
         _, ids_sorted_decreasing = torch.sort(
-            torch.LongTensor([x[6].size(1) for x in batch]),
+            torch.LongTensor([x[4].size(1) for x in batch]),
             dim=0, descending=True)
         # spec和wav都是tensor，所以可以用size取大小。其余字符串得用len函数取大小
 
-
+        # phonemes,f0, phn_dur, spec, wav
         max_phonemes_len = max([len(x[0]) for x in batch])
-        max_notepitch_len = max([len(x[1]) for x in batch])
-        max_notedur_len = max([len(x[2]) for x in batch])
-        max_phndur_len = max([len(x[3]) for x in batch])
-        max_slurflag_len = max([len(x[4]) for x in batch])
-        max_spec_len = max([x[5].size(1) for x in batch])
-        max_wav_len = max([x[6].size(1) for x in batch])
+        max_f0_len = max([len(x[1]) for x in batch])
+        max_phndur_len = max([len(x[2]) for x in batch])
+        max_spec_len = max([x[3].size(1) for x in batch])
+        max_wav_len = max([x[4].size(1) for x in batch])
 
 
         phonemes_lengths = torch.LongTensor(len(batch))
-        notepitch_lengths = torch.LongTensor(len(batch))
-        notedur_lengths = torch.LongTensor(len(batch))
-        phndur_lengths = torch.LongTensor(len(batch))
-        slurflag_lengths = torch.LongTensor(len(batch))
         spec_lengths = torch.LongTensor(len(batch))
         wav_lengths = torch.LongTensor(len(batch))
 
 
         phonemes_padded = torch.LongTensor(len(batch), max_phonemes_len)
-        notepitch_padded = torch.LongTensor(len(batch), max_notepitch_len)
-        notedur_padded = torch.FloatTensor(len(batch), max_notedur_len)
+        f0_padded = torch.LongTensor(len(batch), max_f0_len)
         phndur_padded = torch.FloatTensor(len(batch), max_phndur_len)
-        slurflag_padded = torch.LongTensor(len(batch), max_slurflag_len)
         spec_padded = torch.FloatTensor(len(batch), batch[0][5].size(0), max_spec_len)
         wav_padded = torch.FloatTensor(len(batch), 1, max_wav_len)
 
 
         phonemes_padded.zero_()
-        notepitch_padded.zero_()
-        notedur_padded.zero_()
         phndur_padded.zero_()
-        slurflag_padded.zero_()
         spec_padded.zero_()
         wav_padded.zero_()
+        f0_padded.zero_()
+
         for i in range(len(ids_sorted_decreasing)):
             row = batch[ids_sorted_decreasing[i]]
 
@@ -190,46 +174,36 @@ class TextAudioCollate():
             phonemes_padded[i, :phonemes.size(0)] = phonemes
             phonemes_lengths[i] = phonemes.size(0)
 
-            notepitch = row[1]
+            f0 = row[1]
 
-            notepitch_padded[i, :notepitch.size(0)] = notepitch
-            notepitch_lengths[i] = notepitch.size(0)
+            f0_padded[i, :f0.size(0)] = f0
 
-            notedur = row[2]
-
-            notedur_padded[i, :notedur.size(0)] = notedur
-            notedur_lengths[i] = notedur.size(0)
-
-            phndur = row[3]
+            phndur = row[2]
             phndur_padded[i, :phndur.size(0)] = phndur
-            phndur_lengths[i] = phndur.size(0)
 
-            slurflag = row[4]
-            slurflag_padded[i, :slurflag.size(0)] = slurflag
-            slurflag_lengths[i] = slurflag.size(0)
-
-            spec = row[5]
+            spec = row[3]
             spec_padded[i, :, :spec.size(1)] = spec
             spec_lengths[i] = spec.size(1)
 
-            wav = row[6]
+            wav = row[4]
             wav_padded[i, :, :wav.size(1)] = wav
             wav_lengths[i] = wav.size(1)
 
-        if self.return_ids:
-            return phonemes_padded, phonemes_lengths,\
-                   notepitch_padded, notepitch_lengths,\
-                   notedur_padded, notedur_lengths,\
-                   phndur_padded, phndur_lengths,\
-                   slurflag_padded, slurflag_lengths,\
-                   spec_padded, spec_lengths, wav_padded, wav_lengths, ids_sorted_decreasing
+        f0_padded[f0_padded == 0] = 1
 
-        return  phonemes_padded, phonemes_lengths,\
-                   notepitch_padded, notepitch_lengths,\
-                   notedur_padded, notedur_lengths,\
-                   phndur_padded, phndur_lengths,\
-                   slurflag_padded, slurflag_lengths,\
-                   spec_padded, spec_lengths, wav_padded, wav_lengths
+        if self.return_ids:
+            return phonemes_padded, phonemes_lengths,f0_padded,phonemes_padded,\
+                   spec_padded, spec_lengths, \
+                   wav_padded, wav_lengths, ids_sorted_decreasing
+
+        # (phonemes, phonemes_lengths,
+        #  f0,
+        #  phndur,
+        #  spec, spec_lengths, wav, wav_lengths)
+
+        return  phonemes_padded, phonemes_lengths,f0_padded,phonemes_padded,\
+                   spec_padded, spec_lengths, \
+                   wav_padded, wav_lengths
 
 
 class DistributedBucketSampler(torch.utils.data.distributed.DistributedSampler):
@@ -246,11 +220,11 @@ class DistributedBucketSampler(torch.utils.data.distributed.DistributedSampler):
         self.lengths = dataset.lengths
         self.batch_size = batch_size
         self.boundaries = boundaries
-  
+
         self.buckets, self.num_samples_per_bucket = self._create_buckets()
         self.total_size = sum(self.num_samples_per_bucket)
         self.num_samples = self.total_size // self.num_replicas
-  
+
     def _create_buckets(self):
         # buckets = [[],[],[],[],[],...]
         buckets = [[] for _ in range(len(self.boundaries) - 1)]
@@ -261,12 +235,12 @@ class DistributedBucketSampler(torch.utils.data.distributed.DistributedSampler):
             idx_bucket = self._bisect(length)
             if idx_bucket != -1:
                 buckets[idx_bucket].append(i)
-  
+
         for i in range(len(buckets) - 1, 0, -1):
             if len(buckets[i]) == 0:
                 buckets.pop(i)
                 self.boundaries.pop(i+1)
-  
+
         num_samples_per_bucket = []
         for i in range(len(buckets)):
             len_bucket = len(buckets[i])
@@ -274,12 +248,12 @@ class DistributedBucketSampler(torch.utils.data.distributed.DistributedSampler):
             rem = (total_batch_size - (len_bucket % total_batch_size)) % total_batch_size
             num_samples_per_bucket.append(len_bucket + rem)
         return buckets, num_samples_per_bucket
-  
+
     def __iter__(self):
       # deterministically shuffle based on epoch
       g = torch.Generator()
       g.manual_seed(self.epoch)
-  
+
       indices = []
       if self.shuffle:
           for bucket in self.buckets:
@@ -287,38 +261,38 @@ class DistributedBucketSampler(torch.utils.data.distributed.DistributedSampler):
       else:
           for bucket in self.buckets:
               indices.append(list(range(len(bucket))))
-  
+
       batches = []
       for i in range(len(self.buckets)):
           bucket = self.buckets[i]
           len_bucket = len(bucket)
           ids_bucket = indices[i]
           num_samples_bucket = self.num_samples_per_bucket[i]
-  
+
           # add extra samples to make it evenly divisible
           rem = num_samples_bucket - len_bucket
           ids_bucket = ids_bucket + ids_bucket * (rem // len_bucket) + ids_bucket[:(rem % len_bucket)]
-  
+
           # subsample
           ids_bucket = ids_bucket[self.rank::self.num_replicas]
-  
+
           # batching
           for j in range(len(ids_bucket) // self.batch_size):
               batch = [bucket[idx] for idx in ids_bucket[j*self.batch_size:(j+1)*self.batch_size]]
               batches.append(batch)
-  
+
       if self.shuffle:
           batch_ids = torch.randperm(len(batches), generator=g).tolist()
           batches = [batches[i] for i in batch_ids]
       self.batches = batches
-  
+
       assert len(self.batches) * self.batch_size == self.num_samples
       return iter(self.batches)
-  
+
     def _bisect(self, x, lo=0, hi=None):
       if hi is None:
           hi = len(self.boundaries) - 1
-  
+
       if hi > lo:
           mid = (hi + lo) // 2
           if self.boundaries[mid] < x and x <= self.boundaries[mid+1]:
