@@ -146,28 +146,22 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
     net_d.train()
 
     for batch_idx, (phonemes, phonemes_lengths,
-                    notepitch, notepitch_lengths,
-                    notedur, notedur_lengths,
-                    phndur, phndur_lengths,
-                    slurflag, slurflag_lengths,
+                    f0,
+                    phndur,
                     spec, spec_lengths, wav, wav_lengths) in enumerate(train_loader):
 
         time_1 = time.time()
         phonemes, phonemes_lengths = phonemes.cuda(rank, non_blocking=True), phonemes_lengths.cuda(rank,
                                                                                                    non_blocking=True)
-        notepitch, notepitch_lengths = notepitch.cuda(rank, non_blocking=True), notepitch_lengths.cuda(rank,
-                                                                                                       non_blocking=True)
-        notedur, notedur_lengths = notedur.cuda(rank, non_blocking=True), notedur_lengths.cuda(rank, non_blocking=True)
-        phndur, phndur_lengths = phndur.cuda(rank, non_blocking=True), phndur_lengths.cuda(rank, non_blocking=True)
-        slurflag, slurflag_lengths = slurflag.cuda(rank, non_blocking=True), slurflag_lengths.cuda(rank,
-                                                                                                   non_blocking=True)
+        f0 = f0.cuda(rank, non_blocking=True)
+        phndur = phndur.cuda(rank, non_blocking=True)
         spec, spec_lengths = spec.cuda(rank, non_blocking=True), spec_lengths.cuda(rank, non_blocking=True)
         wav, wav_lengths = wav.cuda(rank, non_blocking=True), wav_lengths.cuda(rank, non_blocking=True)
         time_2 = time.time()
         with autocast(enabled=hps.train.fp16_run):
             time_3 = time.time()
             y_hat, l_length, l_pitch, attn, ids_slice, x_mask, z_mask, \
-            (z, z_p, m_p, logs_p, m_q, logs_q), ctc_loss = net_g(phonemes, phonemes_lengths, notepitch, notedur, phndur,
+            (z, z_p, m_p, logs_p, m_q, logs_q), ctc_loss = net_g(phonemes, phonemes_lengths, f0, phndur,
                                                                  spec, spec_lengths)
             time_4 = time.time()
             mel = spec_to_mel_torch(
@@ -269,32 +263,29 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
 def evaluate(hps, generator, eval_loader, writer_eval):
     generator.eval()
     with torch.no_grad():
-        for batch_idx, (phonemes, phonemes_lengths, notepitch, notepitch_lengths, notedur, notedur_lengths,
-                        phndur, phndur_lengths, slurflag, slurflag_lengths,
+        for batch_idx, (phonemes, phonemes_lengths,
+                        f0,
+                        phndur,
                         spec, spec_lengths, wav, wav_lengths) in enumerate(eval_loader):
             phonemes, phonemes_lengths = phonemes.cuda(0), phonemes_lengths.cuda(0)
             spec, spec_lengths = spec.cuda(0), spec_lengths.cuda(0)
             wav, wav_lengths = wav.cuda(0), wav_lengths.cuda(0)
-            notepitch, notepitch_lengths = notepitch.cuda(0), notepitch_lengths.cuda(0)
-            notedur, notedur_lengths = notedur.cuda(0), notedur_lengths.cuda(0)
-            phndur, phndur_lengths = phndur.cuda(0), phndur_lengths.cuda(0)
-            slurflag, slurflag_lengths = slurflag.cuda(0), slurflag_lengths.cuda(0)
+            notepitch = f0.cuda(0)
+            phndur = phndur.cuda(0)
 
             # remove else
             phonemes = phonemes[:1]
             phonemes_lengths = phonemes_lengths[:1]
             notepitch = notepitch[:1]
 
-            notedur = notedur[:1]
             phndur = phndur[:1]
-            slurflag = slurflag[:1]
 
             spec = spec[:1]
             spec_lengths = spec_lengths[:1]
             wav = wav[:1]
             wav_lengths = wav_lengths[:1]
             break
-        y_hat, mask, xx = generator.module.infer(phonemes, phonemes_lengths, notepitch, notedur,
+        y_hat, mask, xx = generator.module.infer(phonemes, phonemes_lengths,
                                                  max_len=1000)
         y_hat_lengths = mask.sum([1, 2]).long() * hps.data.hop_length
 
