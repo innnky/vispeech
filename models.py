@@ -14,6 +14,8 @@ import monotonic_align
 
 from torch.nn import Conv1d, ConvTranspose1d, AvgPool1d, Conv2d
 from torch.nn.utils import weight_norm, remove_weight_norm, spectral_norm
+
+import utils
 from commons import init_weights, get_padding
 from frame_prior_network import ConformerBlock, VariancePredictor, ResidualConnectionModule
 from text.symbols import ctc_symbols
@@ -244,7 +246,7 @@ class PitchPredictor(nn.Module):
         self.kernel_size = kernel_size
         self.p_dropout = p_dropout
 
-        self.emb = nn.Embedding(121, hidden_channels)
+        self.emb = nn.Embedding(256, hidden_channels)
 
         self.pitch_net = attentions.Encoder(
             hidden_channels,
@@ -255,10 +257,16 @@ class PitchPredictor(nn.Module):
             p_dropout)
         self.proj = nn.Conv1d(hidden_channels, 1, 1)
 
-    def forward(self, x, x_mask):
-        pitch_embedding = self.pitch_net(x * x_mask, x_mask)
-        pitch_embedding = pitch_embedding * x_mask
-        pred_pitch = self.proj(pitch_embedding)
+    def forward(self, x, x_mask, f0=None, shift=None):
+        x = self.pitch_net(x * x_mask, x_mask)
+        x = x * x_mask
+        pred_pitch = self.proj(x)
+        if shift is not None:
+            pred_pitch = pred_pitch * shift
+        f0_coarse = utils.f0_to_coarse(pred_pitch)
+        if f0 is not None:
+            f0_coarse = utils.f0_to_coarse(f0)
+        pitch_embedding = self.emb(f0_coarse)
         return pred_pitch, pitch_embedding
 
 
@@ -678,6 +686,8 @@ class SynthesizerTrn(nn.Module):
     x_mask_sum = torch.sum(x_mask)
     l_length = l_loss / x_mask_sum
     x_frame, x_lengths = self.lr(x, phndur, phonemes_lengths)
+    print(f0.shape, x_frame.shape)
+    print()
     x_frame = x_frame.to(x.device)
     x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x_frame.size(2)), 1).to(x.dtype)  # 更新x_mask矩阵
     x_mask = x_mask.to(x.device)
@@ -692,7 +702,7 @@ class SynthesizerTrn(nn.Module):
     pe[:, :, 1::2] = torch.cos(position * div_term)
     pe = pe.transpose(1, 2).to(x_frame.device)
     x_frame = x_frame + pe
-    pred_pitch, pitch_embedding = self.pitch_net(x_frame, x_mask)
+    pred_pitch, pitch_embedding = self.pitch_net(x_frame, x_mask, f0=f0)
     lf0 = torch.unsqueeze(pred_pitch, -1)
     # f0要做log 要留意padding
     gt_lf0 = torch.log(f0)
@@ -749,15 +759,6 @@ class SynthesizerTrn(nn.Module):
     pe = pe.transpose(1, 2).to(x_frame.device)
     x_frame = x_frame + pe
     pred_pitch, pitch_embedding = self.pitch_net(x_frame, x_mask)
-    lf0 = torch.unsqueeze(pred_pitch, -1)
-    f0 = torch.exp(lf0)
-    f0 = f0.to(x.device)
-    gt_f0 = (440 * (2 ** ((frame_pitch - 69) / 12)))
-    gt_f0 = gt_f0.to(x.device)
-    x_mask_sum = torch.sum(x_mask)
-    f0 = f0.squeeze()
-    l_pitch = torch.sum(abs(gt_f0 - f0), 1) / x_mask_sum
-    l_pitch = torch.sum(l_pitch.float())
     x_frame = self.frame_prior_net(x_frame, pitch_embedding, x_mask)
     x_frame = x_frame.transpose(1, 2)
     m_p, logs_p = self.project(x_frame, x_mask)
