@@ -18,7 +18,7 @@ from torch.nn.utils import weight_norm, remove_weight_norm, spectral_norm
 import utils
 from commons import init_weights, get_padding
 from frame_prior_network import ConformerBlock, VariancePredictor, ResidualConnectionModule
-from text.symbols import ctc_symbols
+from text.symbols import symbols
 
 
 class LengthRegulator(nn.Module):
@@ -219,16 +219,15 @@ class PhonemesPredictor(nn.Module):
 
     def forward(self, x, x_mask):
         phonemes_embedding = self.phonemes_predictor(x * x_mask, x_mask)
-        # print("x_size:", x.size())
         x1 = self.linear1(phonemes_embedding.transpose(1, 2))
         x1 = x1.log_softmax(2)
-        # print("phonemes_embedding size:", x1.size())
         return x1.transpose(0, 1)
 
 
 class PitchPredictor(nn.Module):
     def __init__(self,
                  n_vocab,
+                 gin_channels,
                  out_channels,
                  hidden_channels,
                  filter_channels,
@@ -255,19 +254,32 @@ class PitchPredictor(nn.Module):
             n_layers,
             kernel_size,
             p_dropout)
-        self.proj = nn.Conv1d(hidden_channels, 1, 1)
+        self.proj_f0 = nn.Conv1d(hidden_channels, 1, 1)
+        if gin_channels != 0:
+            self.cond = nn.Conv1d(gin_channels, hidden_channels, 1)
+        self.pitch_bins = nn.Parameter(
+            torch.linspace(-1.2502422699374525, 5.283679553058448, 256 - 1),
+            requires_grad=False,
+        )
 
-    def forward(self, x, x_mask, f0=None, shift=None):
+    def forward(self, x, x_mask, f0=None, shift=None, g=None):
+        x = torch.detach(x)
+        if g is not None:
+            g = torch.detach(g)
+            x = x + self.cond(g)
         x = self.pitch_net(x * x_mask, x_mask)
         x = x * x_mask
-        pred_pitch = self.proj(x)
-        if shift is not None:
-            pred_pitch = pred_pitch * shift
-        f0_coarse = utils.f0_to_coarse(pred_pitch)
+        pred_f0 = self.proj_f0(x).squeeze(1)
+
         if f0 is not None:
-            f0_coarse = utils.f0_to_coarse(f0)
-        pitch_embedding = self.emb(f0_coarse)
-        return pred_pitch, pitch_embedding
+            embedding = self.emb(torch.bucketize(f0, self.pitch_bins))
+        else:
+            shift = 1 if shift is None else shift
+            embedding = self.emb(
+                torch.bucketize(pred_f0 * shift, self.pitch_bins)
+            )
+
+        return pred_f0, embedding.transpose(1,2)
 
 
 class TextEncoder(nn.Module):
@@ -669,16 +681,19 @@ class SynthesizerTrn(nn.Module):
     self.lr = LengthRegulator(hop_length, sampling_rate)
     self.frame_prior_net = FramePriorNet(n_vocab, inter_channels, hidden_channels, filter_channels, n_heads, n_layers, kernel_size, p_dropout)
     # self.pitch_net = VariancePredictor()
-    self.pitch_net = PitchPredictor(n_vocab, inter_channels, hidden_channels, filter_channels, n_heads, n_layers, kernel_size, p_dropout)
-    self.phonemes_predictor = PhonemesPredictor(n_vocab, inter_channels, hidden_channels, filter_channels, n_heads, n_layers, kernel_size, p_dropout)
-    self.ctc_loss = nn.CTCLoss(len(ctc_symbols)-1, reduction='mean')
+    self.pitch_net = PitchPredictor(n_vocab, gin_channels, inter_channels, hidden_channels, filter_channels, n_heads,
+                                    n_layers,
+                                    kernel_size, p_dropout)
+    # self.phonemes_predictor = PhonemesPredictor(n_vocab, inter_channels, hidden_channels, filter_channels, n_heads, n_layers, kernel_size, p_dropout)
+    # self.ctc_loss = nn.CTCLoss(len(symbols), reduction='mean')
     if n_speakers > 1:
       self.emb_g = nn.Embedding(n_speakers, gin_channels)
 
   def forward(self, phonemes, phonemes_lengths, f0, phndur, spec, spec_lengths, sid=None):
     g = None
+    # print(phonemes.shape,phonemes_lengths,phndur.shape,f0.shape,spec.shape)
     x, x_mask = self.enc_p(phonemes, phonemes_lengths)
-    w = torch.FloatTensor(phndur.detach() * self.hop_length / self.sampling_rate).unsqueeze(1)
+    w = (phndur.detach().float() * self.hop_length / self.sampling_rate).unsqueeze(1)
     logw_ = w * x_mask
     logw = self.dp(x, x_mask, g=g)
     # 直接预测时长（s）
@@ -686,8 +701,9 @@ class SynthesizerTrn(nn.Module):
     x_mask_sum = torch.sum(x_mask)
     l_length = l_loss / x_mask_sum
     x_frame, x_lengths = self.lr(x, phndur, phonemes_lengths)
-    print(f0.shape, x_frame.shape)
-    print()
+    f0 = f0[:, :x_frame.shape[-1]]
+    # print(x_frame.shape, f0.shape)
+
     x_frame = x_frame.to(x.device)
     x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x_frame.size(2)), 1).to(x.dtype)  # 更新x_mask矩阵
     x_mask = x_mask.to(x.device)
@@ -702,20 +718,16 @@ class SynthesizerTrn(nn.Module):
     pe[:, :, 1::2] = torch.cos(position * div_term)
     pe = pe.transpose(1, 2).to(x_frame.device)
     x_frame = x_frame + pe
-    pred_pitch, pitch_embedding = self.pitch_net(x_frame, x_mask, f0=f0)
-    lf0 = torch.unsqueeze(pred_pitch, -1)
-    # f0要做log 要留意padding
-    gt_lf0 = torch.log(f0)
-    gt_lf0 = gt_lf0.to(x.device)
-    x_mask_sum = torch.sum(x_mask)
-    lf0 = lf0.squeeze()
-    l_pitch = torch.sum((gt_lf0 - lf0) ** 2, 1) / x_mask_sum
+    pred_f0, pitch_embedding = self.pitch_net(x_frame, x_mask, f0=f0)
+    l_pitch = F.mse_loss(pred_f0, f0)
+
     x_frame = self.frame_prior_net(x_frame, pitch_embedding, x_mask)
     x_frame = x_frame.transpose(1, 2)
     m_p, logs_p = self.project(x_frame, x_mask)
     z, m_q, logs_q, y_mask = self.enc_q(spec, spec_lengths, g=g)
-    log_probs = self.phonemes_predictor(z, y_mask)
-    ctc_loss = self.ctc_loss(log_probs, phonemes, spec_lengths, phonemes_lengths)
+    # log_probs = self.phonemes_predictor(z, y_mask)
+    # ctc_loss = self.ctc_loss(log_probs, phonemes, spec_lengths, phonemes_lengths)
+    ctc_loss = torch.FloatTensor([0]).detach().cuda()
     z_p = self.flow(z, y_mask, g=g)
     with torch.no_grad():
       # negative cross-entropy
@@ -733,7 +745,7 @@ class SynthesizerTrn(nn.Module):
     o = self.dec(z_slice, g=g)
     # np.save("outwav.npy",o.cpu().detach().numpy())
     # np.save("phonemes.npy",phonemes.cpu().detach().numpy())
-    return o, l_length, l_pitch, attn, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q), ctc_loss
+    return o, l_length, l_pitch, attn, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q), ctc_loss, pred_f0
 
   def infer(self, phonemes, phonemes_lengths,
             sid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None):
@@ -743,7 +755,7 @@ class SynthesizerTrn(nn.Module):
     logw = self.dp(x, x_mask, g=g)
     w = logw * x_mask * length_scale
     w = torch.ceil(w * self.sampling_rate / self.hop_length)
-    x_frame, frame_pitch, x_lengths = self.lr(x, w, phonemes_lengths)
+    x_frame, x_lengths = self.lr(x, w, phonemes_lengths)
     x_frame = x_frame.to(x.device)
     x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x_frame.size(2)), 1).to(x.dtype)
     x_mask = x_mask.to(x.device)
@@ -762,7 +774,6 @@ class SynthesizerTrn(nn.Module):
     x_frame = self.frame_prior_net(x_frame, pitch_embedding, x_mask)
     x_frame = x_frame.transpose(1, 2)
     m_p, logs_p = self.project(x_frame, x_mask)
-    w_ceil = torch.ceil(w)
     z_p = m_p + torch.randn_like(m_p) * torch.exp(logs_p) * noise_scale
     z = self.flow(z_p, x_mask, g=g, reverse=True)
     o = self.dec((z * x_mask)[:, :, :max_len], g=g)

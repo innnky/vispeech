@@ -45,6 +45,11 @@ def load_checkpoint(checkpoint_path, model, optimizer=None):
 
 
 def save_checkpoint(model, optimizer, learning_rate, iteration, checkpoint_path):
+  ckptname = checkpoint_path.split("/")[-1]
+  newest_step = int(ckptname.split(".")[0].split("_")[1])
+  last_ckptname = checkpoint_path.replace(str(newest_step), str(newest_step - 2400))
+  if newest_step >= 2400:
+    os.system(f"rm {last_ckptname}")
   logger.info("Saving model and optimizer state at iteration {} to {}".format(
     iteration, checkpoint_path))
   if hasattr(model, 'module'):
@@ -122,6 +127,29 @@ def plot_alignment_to_numpy(alignment, info=None):
       xlabel += '\n\n' + info
   plt.xlabel(xlabel)
   plt.ylabel('Encoder timestep')
+  plt.tight_layout()
+
+  fig.canvas.draw()
+  data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+  data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+  plt.close()
+  return data
+
+
+def plot_data_to_numpy(x, y):
+  global MATPLOTLIB_FLAG
+  if not MATPLOTLIB_FLAG:
+    import matplotlib
+    matplotlib.use("Agg")
+    MATPLOTLIB_FLAG = True
+    mpl_logger = logging.getLogger('matplotlib')
+    mpl_logger.setLevel(logging.WARNING)
+  import matplotlib.pylab as plt
+  import numpy as np
+
+  fig, ax = plt.subplots(figsize=(10, 2))
+  plt.plot(x)
+  plt.plot(y)
   plt.tight_layout()
 
   fig.canvas.draw()

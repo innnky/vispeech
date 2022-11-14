@@ -45,7 +45,7 @@ def main():
 
     n_gpus = torch.cuda.device_count()
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '80000'
+    os.environ['MASTER_PORT'] = '25565'
     hps = utils.get_hparams()
     mp.spawn(run, nprocs=n_gpus, args=(n_gpus, hps,))
 
@@ -161,7 +161,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         with autocast(enabled=hps.train.fp16_run):
             time_3 = time.time()
             y_hat, l_length, l_pitch, attn, ids_slice, x_mask, z_mask, \
-            (z, z_p, m_p, logs_p, m_q, logs_q), ctc_loss = net_g(phonemes, phonemes_lengths, f0, phndur,
+            (z, z_p, m_p, logs_p, m_q, logs_q), ctc_loss, pred_f0 = net_g(phonemes, phonemes_lengths, f0, phndur,
                                                                  spec, spec_lengths)
             time_4 = time.time()
             mel = spec_to_mel_torch(
@@ -240,7 +240,8 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                     "slice/mel_org": utils.plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
                     "slice/mel_gen": utils.plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),
                     "all/mel": utils.plot_spectrogram_to_numpy(mel[0].data.cpu().numpy()),
-                    "all/attn": utils.plot_alignment_to_numpy(attn[0, 0].data.cpu().numpy())
+                    "all/attn": utils.plot_alignment_to_numpy(attn[0, 0].data.cpu().numpy()),
+                    "all/f0": utils.plot_data_to_numpy(f0[0, :].cpu().numpy(), pred_f0[0, :].detach().cpu().numpy()),
                 }
                 utils.summarize(
                     writer=writer,

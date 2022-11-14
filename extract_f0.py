@@ -61,4 +61,4 @@ with open(filelist) as f:
     min_value, max_value = normalize(f0paths, pitch_mean, pitch_std)
     print(min_value, max_value)
 # 标贝
-# -1.2502436405599386 5.283682365233834
+# -1.2502422699374525 5.283679553058448

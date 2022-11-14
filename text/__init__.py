@@ -34,7 +34,7 @@ def cleaned_text_to_sequence(cleaned_text):
     Returns:
       List of integers corresponding to the symbols in the text
   '''
-  sequence = [_symbol_to_id[symbol] for symbol in cleaned_text if symbol in _symbol_to_id.keys()]
+  sequence = [_symbol_to_id[symbol] for symbol in cleaned_text]
   return sequence
 
 

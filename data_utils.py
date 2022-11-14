@@ -64,17 +64,17 @@ class TextAudioLoader(torch.utils.data.Dataset):
         wav_path, phonemes, phn_dur = audiopath_and_text
 
         phonemes = self.get_phonemes(phonemes)
-        phn_dur = self.get_duration_flag( phn_dur)
-
-
+        phn_dur = self.get_duration_flag(phn_dur)
 
         # 得到文本内容、频谱图、音频数据
         spec, wav = self.get_audio(wav_path)
         f0 = torch.FloatTensor(np.load(f"{wav_path}.f0.npy"))
+        assert abs(f0.shape[0] - sum(phn_dur))<2, wav_path
+        assert phonemes.shape ==phn_dur.shape, phonemes
         return phonemes,f0, phn_dur, spec, wav
 
     def get_phonemes(self, phonemes):
-        phonemes_norm = cleaned_text_to_sequence(phonemes)
+        phonemes_norm = cleaned_text_to_sequence(phonemes.split(" "))
         phonemes_norm = torch.LongTensor(phonemes_norm)
         return phonemes_norm
 
@@ -154,9 +154,9 @@ class TextAudioCollate():
 
 
         phonemes_padded = torch.LongTensor(len(batch), max_phonemes_len)
-        f0_padded = torch.LongTensor(len(batch), max_f0_len)
-        phndur_padded = torch.FloatTensor(len(batch), max_phndur_len)
-        spec_padded = torch.FloatTensor(len(batch), batch[0][5].size(0), max_spec_len)
+        f0_padded = torch.FloatTensor(len(batch), max_f0_len)
+        phndur_padded = torch.LongTensor(len(batch), max_phndur_len)
+        spec_padded = torch.FloatTensor(len(batch), batch[0][3].size(0), max_spec_len)
         wav_padded = torch.FloatTensor(len(batch), 1, max_wav_len)
 
 
@@ -189,7 +189,6 @@ class TextAudioCollate():
             wav_padded[i, :, :wav.size(1)] = wav
             wav_lengths[i] = wav.size(1)
 
-        f0_padded[f0_padded == 0] = 1
 
         if self.return_ids:
             return phonemes_padded, phonemes_lengths,f0_padded,phonemes_padded,\
@@ -200,8 +199,8 @@ class TextAudioCollate():
         #  f0,
         #  phndur,
         #  spec, spec_lengths, wav, wav_lengths)
-
-        return  phonemes_padded, phonemes_lengths,f0_padded,phonemes_padded,\
+        # print(f0_padded.shape, sum(phndur_padded[0,:]), phndur_padded[0,:])
+        return  phonemes_padded, phonemes_lengths,f0_padded,phndur_padded,\
                    spec_padded, spec_lengths, \
                    wav_padded, wav_lengths
 
