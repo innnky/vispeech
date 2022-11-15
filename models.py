@@ -10,7 +10,6 @@ import numpy as np
 import commons
 import modules
 import attentions
-import monotonic_align
 
 from torch.nn import Conv1d, ConvTranspose1d, AvgPool1d, Conv2d
 from torch.nn.utils import weight_norm, remove_weight_norm, spectral_norm
@@ -688,9 +687,6 @@ class SynthesizerTrn(nn.Module):
                                         n_heads,
                                         n_layers,
                                         kernel_size, p_dropout)
-        self.phonemes_predictor = PhonemesPredictor(n_vocab, inter_channels, hidden_channels, filter_channels, n_heads,
-                                                    n_layers, kernel_size, p_dropout)
-        self.ctc_loss = nn.CTCLoss(blank=17, reduction='mean')
         if n_speakers > 1:
             self.emb_g = nn.Embedding(n_speakers, gin_channels)
 
@@ -699,6 +695,7 @@ class SynthesizerTrn(nn.Module):
             g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
         else:
             g = None
+
         # print(phonemes.shape,phonemes_lengths,phndur.shape,f0.shape,spec.shape)
         x, x_mask = self.enc_p(phonemes, phonemes_lengths)
         logw_ = torch.log(phndur.detach().float()+1).unsqueeze(1) * x_mask
@@ -709,6 +706,9 @@ class SynthesizerTrn(nn.Module):
         l_length = l_loss / x_mask_sum
         x_frame, x_lengths = self.lr(x, phndur, phonemes_lengths)
         f0 = f0[:, :x_frame.shape[-1]]
+        spec_padded = torch.zeros(spec.shape[0],spec.shape[1],x_frame.shape[-1]).float().to(spec.device)
+        spec_padded[:,:,:spec.shape[-1]]=spec
+        spec = spec_padded.detach()
         # print(x_frame.shape, f0.shape)
 
         x_frame = x_frame.to(x.device)
@@ -732,28 +732,14 @@ class SynthesizerTrn(nn.Module):
         x_frame = x_frame.transpose(1, 2)
         m_p, logs_p = self.project(x_frame, x_mask)
         z, m_q, logs_q, y_mask = self.enc_q(spec, spec_lengths, g=g)
-        log_probs = self.phonemes_predictor(z, y_mask)
-        ctc_loss = self.ctc_loss(log_probs, phonemes, spec_lengths, phonemes_lengths)
         z_p = self.flow(z, y_mask, g=g)
-        with torch.no_grad():
-            # negative cross-entropy
-            s_p_sq_r = torch.exp(-2 * logs_p)  # [b, d, t]
-            neg_cent1 = torch.sum(-0.5 * math.log(2 * math.pi) - logs_p, [1], keepdim=True)  # [b, 1, t_s]
-            neg_cent2 = torch.matmul(-0.5 * (z_p ** 2).transpose(1, 2),
-                                     s_p_sq_r)  # [b, t_t, d] x [b, d, t_s] = [b, t_t, t_s]
-            neg_cent3 = torch.matmul(z_p.transpose(1, 2), (m_p * s_p_sq_r))  # [b, t_t, d] x [b, d, t_s] = [b, t_t, t_s]
-            neg_cent4 = torch.sum(-0.5 * (m_p ** 2) * s_p_sq_r, [1], keepdim=True)  # [b, 1, t_s]
-            neg_cent = neg_cent1 + neg_cent2 + neg_cent3 + neg_cent4
-            attn_mask = torch.unsqueeze(x_mask, 2) * torch.unsqueeze(y_mask, -1)
-            attn = monotonic_align.maximum_path(neg_cent, attn_mask.squeeze(1)).unsqueeze(1).detach()
-        m_p = torch.matmul(attn.squeeze(1), m_p.transpose(1, 2)).transpose(1, 2)
-        logs_p = torch.matmul(attn.squeeze(1), logs_p.transpose(1, 2)).transpose(1, 2)
+
         z_slice, ids_slice = commons.rand_slice_segments(z, spec_lengths, self.segment_size)
         o = self.dec(z_slice, g=g)
         # np.save("outwav.npy",o.cpu().detach().numpy())
         # np.save("phonemes.npy",phonemes.cpu().detach().numpy())
-        return o, l_length, l_pitch, attn, ids_slice, x_mask, y_mask, (
-        z, z_p, m_p, logs_p, m_q, logs_q), ctc_loss, pred_f0
+        return o, l_length, l_pitch, ids_slice, x_mask, y_mask, (
+        z, z_p, m_p, logs_p, m_q, logs_q), pred_f0
 
     def infer(self, phonemes, phonemes_lengths,
               sid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None):
