@@ -701,9 +701,7 @@ class SynthesizerTrn(nn.Module):
             g = None
         # print(phonemes.shape,phonemes_lengths,phndur.shape,f0.shape,spec.shape)
         x, x_mask = self.enc_p(phonemes, phonemes_lengths)
-        w = phndur.clone()
-        w[w == 0] = 1
-        logw_ = torch.log(w.detach().float()).unsqueeze(1) * x_mask
+        logw_ = torch.log(phndur.detach().float()+1).unsqueeze(1) * x_mask
         logw = self.dp(x, x_mask, g=g)
         # 直接预测时长（s）
         l_loss = torch.sum((logw - logw_) ** 2, [1, 2])
@@ -765,7 +763,7 @@ class SynthesizerTrn(nn.Module):
             g = None
         x, x_mask = self.enc_p(phonemes, phonemes_lengths)
         logw = self.dp(x, x_mask, g=g)
-        w = torch.exp(logw) * x_mask * length_scale
+        w = (torch.exp(logw) * x_mask -1) * length_scale
         w = torch.ceil(w)
         x_frame, x_lengths = self.lr(x, w, phonemes_lengths)
         x_frame = x_frame.to(x.device)
