@@ -684,8 +684,8 @@ class SynthesizerTrn(nn.Module):
     self.pitch_net = PitchPredictor(n_vocab, gin_channels, inter_channels, hidden_channels, filter_channels, n_heads,
                                     n_layers,
                                     kernel_size, p_dropout)
-    # self.phonemes_predictor = PhonemesPredictor(n_vocab, inter_channels, hidden_channels, filter_channels, n_heads, n_layers, kernel_size, p_dropout)
-    # self.ctc_loss = nn.CTCLoss(len(symbols), reduction='mean')
+    self.phonemes_predictor = PhonemesPredictor(n_vocab, inter_channels, hidden_channels, filter_channels, n_heads, n_layers, kernel_size, p_dropout)
+    self.ctc_loss = nn.CTCLoss(blank=17, reduction='mean')
     if n_speakers > 1:
       self.emb_g = nn.Embedding(n_speakers, gin_channels)
 
@@ -693,8 +693,9 @@ class SynthesizerTrn(nn.Module):
     g = None
     # print(phonemes.shape,phonemes_lengths,phndur.shape,f0.shape,spec.shape)
     x, x_mask = self.enc_p(phonemes, phonemes_lengths)
-    w = (phndur.detach().float() * self.hop_length / self.sampling_rate).unsqueeze(1)
-    logw_ = w * x_mask
+    w = phndur.clone()
+    w[w == 0] = 1
+    logw_ = torch.log(w.detach().float()).unsqueeze(1) * x_mask
     logw = self.dp(x, x_mask, g=g)
     # 直接预测时长（s）
     l_loss = torch.sum((logw - logw_)**2, [1, 2])
@@ -725,9 +726,8 @@ class SynthesizerTrn(nn.Module):
     x_frame = x_frame.transpose(1, 2)
     m_p, logs_p = self.project(x_frame, x_mask)
     z, m_q, logs_q, y_mask = self.enc_q(spec, spec_lengths, g=g)
-    # log_probs = self.phonemes_predictor(z, y_mask)
-    # ctc_loss = self.ctc_loss(log_probs, phonemes, spec_lengths, phonemes_lengths)
-    ctc_loss = torch.FloatTensor([0]).detach().cuda()
+    log_probs = self.phonemes_predictor(z, y_mask)
+    ctc_loss = self.ctc_loss(log_probs, phonemes, spec_lengths, phonemes_lengths)
     z_p = self.flow(z, y_mask, g=g)
     with torch.no_grad():
       # negative cross-entropy
@@ -753,8 +753,8 @@ class SynthesizerTrn(nn.Module):
     x, x_mask = self.enc_p(phonemes, phonemes_lengths)
 
     logw = self.dp(x, x_mask, g=g)
-    w = logw * x_mask * length_scale
-    w = torch.ceil(w * self.sampling_rate / self.hop_length)
+    w = torch.exp(logw) * x_mask * length_scale
+    w = torch.ceil(w)
     x_frame, x_lengths = self.lr(x, w, phonemes_lengths)
     x_frame = x_frame.to(x.device)
     x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x_frame.size(2)), 1).to(x.dtype)
