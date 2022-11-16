@@ -18,8 +18,8 @@ from torch.cuda.amp import autocast, GradScaler
 import commons
 import utils
 from data_utils import (
-    TextAudioLoader,
-    TextAudioCollate,
+    TextAudioSpeakerLoader,
+    TextAudioSpeakerCollate,
     DistributedBucketSampler
 )
 from models import (
@@ -63,7 +63,7 @@ def run(rank, n_gpus, hps):
     torch.manual_seed(hps.train.seed)
     torch.cuda.set_device(rank)
 
-    train_dataset = TextAudioLoader(hps.data.training_files, hps.data)
+    train_dataset = TextAudioSpeakerLoader(hps.data.training_files, hps.data)
 
     train_sampler = DistributedBucketSampler(
         train_dataset,
@@ -72,12 +72,12 @@ def run(rank, n_gpus, hps):
         num_replicas=n_gpus,
         rank=rank,
         shuffle=True)
-    collate_fn = TextAudioCollate()
+    collate_fn = TextAudioSpeakerCollate()
     train_loader = DataLoader(train_dataset, num_workers=8, shuffle=False, pin_memory=True,
                               collate_fn=collate_fn, batch_sampler=train_sampler)
 
     if rank == 0:
-        eval_dataset = TextAudioLoader(hps.data.validation_files, hps.data)
+        eval_dataset = TextAudioSpeakerLoader(hps.data.validation_files, hps.data)
         eval_loader = DataLoader(eval_dataset, num_workers=8, shuffle=False,
                                  batch_size=hps.train.batch_size, pin_memory=True,
                                  drop_last=False, collate_fn=collate_fn)
@@ -88,6 +88,7 @@ def run(rank, n_gpus, hps):
         hps.data.hop_length,
         hps.data.sampling_rate,
         hps.train.segment_size // hps.data.hop_length,
+        n_speakers=hps.data.n_speakers,
         **hps.model).cuda(rank)
 
     net_d = MultiPeriodDiscriminator(hps.model.use_spectral_norm).cuda(rank)
@@ -148,7 +149,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
     for batch_idx, (phonemes, phonemes_lengths,
                     f0,
                     phndur,
-                    spec, spec_lengths, wav, wav_lengths) in enumerate(train_loader):
+                    spec, spec_lengths, wav, wav_lengths, sid) in enumerate(train_loader):
 
         time_1 = time.time()
         phonemes, phonemes_lengths = phonemes.cuda(rank, non_blocking=True), phonemes_lengths.cuda(rank,
@@ -157,12 +158,13 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         phndur = phndur.cuda(rank, non_blocking=True)
         spec, spec_lengths = spec.cuda(rank, non_blocking=True), spec_lengths.cuda(rank, non_blocking=True)
         wav, wav_lengths = wav.cuda(rank, non_blocking=True), wav_lengths.cuda(rank, non_blocking=True)
+        sid = sid.cuda(rank, non_blocking=True)
         time_2 = time.time()
         with autocast(enabled=hps.train.fp16_run):
             time_3 = time.time()
             y_hat, l_length, l_pitch, ids_slice, x_mask, z_mask, \
             (z, z_p, m_p, logs_p, m_q, logs_q), pred_f0 = net_g(phonemes, phonemes_lengths, f0, phndur,
-                                                                 spec, spec_lengths)
+                                                                 spec, spec_lengths, sid=sid)
             time_4 = time.time()
             mel = spec_to_mel_torch(
                 spec,
@@ -266,18 +268,18 @@ def evaluate(hps, generator, eval_loader, writer_eval):
         for batch_idx, (phonemes, phonemes_lengths,
                         f0,
                         phndur,
-                        spec, spec_lengths, wav, wav_lengths) in enumerate(eval_loader):
+                        spec, spec_lengths, wav, wav_lengths, sid) in enumerate(eval_loader):
             phonemes, phonemes_lengths = phonemes.cuda(0), phonemes_lengths.cuda(0)
             spec, spec_lengths = spec.cuda(0), spec_lengths.cuda(0)
             wav, wav_lengths = wav.cuda(0), wav_lengths.cuda(0)
             notepitch = f0.cuda(0)
             phndur = phndur.cuda(0)
-
+            sid = sid.cuda(0)
             # remove else
             phonemes = phonemes[:1]
             phonemes_lengths = phonemes_lengths[:1]
             notepitch = notepitch[:1]
-
+            sid = sid[:1]
             phndur = phndur[:1]
 
             spec = spec[:1]
@@ -285,8 +287,8 @@ def evaluate(hps, generator, eval_loader, writer_eval):
             wav = wav[:1]
             wav_lengths = wav_lengths[:1]
             break
-        y_hat, mask, xx, pred_pitch = generator.module.infer(phonemes, phonemes_lengths,
-                                                 max_len=1000)
+        y_hat, mask, xx, pred_f0 = generator.module.infer(phonemes, phonemes_lengths,
+                                                 max_len=1000, sid=sid)
         y_hat_lengths = mask.sum([1, 2]).long() * hps.data.hop_length
 
         mel = spec_to_mel_torch(
@@ -307,7 +309,10 @@ def evaluate(hps, generator, eval_loader, writer_eval):
             hps.data.mel_fmax
         )
     image_dict = {
-        "gen/mel": utils.plot_spectrogram_to_numpy(y_hat_mel[0].cpu().numpy())
+        "gen/mel": utils.plot_spectrogram_to_numpy(y_hat_mel[0].cpu().numpy()),
+        "all/f0": utils.plot_data_to_numpy(f0[0, :].cpu().numpy(),
+                                           pred_f0[0, :].detach().cpu().numpy()),
+
     }
     audio_dict = {
         "gen/audio": y_hat[0, :, :y_hat_lengths[0]]
