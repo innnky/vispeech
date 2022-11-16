@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import copy
 import math
+from collections import OrderedDict
+
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -16,7 +18,7 @@ from torch.nn.utils import weight_norm, remove_weight_norm, spectral_norm
 
 import utils
 from commons import init_weights, get_padding
-from frame_prior_network import ConformerBlock, VariancePredictor, ResidualConnectionModule
+from frame_prior_network import ConformerBlock, ResidualConnectionModule
 from text.symbols import symbols
 
 
@@ -219,6 +221,107 @@ class PhonemesPredictor(nn.Module):
         x1 = x1.log_softmax(2)
         return x1.transpose(0, 1)
 
+class VariancePredictor(nn.Module):
+    """Duration, Pitch and Energy Predictor"""
+
+    def __init__(self, input_size,filter_size,kernel,conv_output_size,dropout):
+        super(VariancePredictor, self).__init__()
+
+        self.input_size = input_size
+        self.filter_size = filter_size
+        self.kernel = kernel
+        self.conv_output_size = conv_output_size
+        self.dropout = dropout
+
+        self.conv_layer = nn.Sequential(
+            OrderedDict(
+                [
+                    (
+                        "conv1d_1",
+                        Conv(
+                            self.input_size,
+                            self.filter_size,
+                            kernel_size=self.kernel,
+                            padding=(self.kernel - 1) // 2,
+                        ),
+                    ),
+                    ("relu_1", nn.ReLU()),
+                    ("layer_norm_1", nn.LayerNorm(self.filter_size)),
+                    ("dropout_1", nn.Dropout(self.dropout)),
+                    (
+                        "conv1d_2",
+                        Conv(
+                            self.filter_size,
+                            self.filter_size,
+                            kernel_size=self.kernel,
+                            padding=1,
+                        ),
+                    ),
+                    ("relu_2", nn.ReLU()),
+                    ("layer_norm_2", nn.LayerNorm(self.filter_size)),
+                    ("dropout_2", nn.Dropout(self.dropout)),
+                ]
+            )
+        )
+
+        self.linear_layer = nn.Linear(self.conv_output_size, 1)
+
+    def forward(self, encoder_output, mask):
+        print(encoder_output)
+        out = self.conv_layer(encoder_output)
+        out = self.linear_layer(out)
+        out = out.squeeze(-1)
+
+        if mask is not None:
+            out = out.masked_fill(mask, 0.0)
+
+        return out
+
+
+class Conv(nn.Module):
+    """
+    Convolution Module
+    """
+
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size=1,
+        stride=1,
+        padding=0,
+        dilation=1,
+        bias=True,
+        w_init="linear",
+    ):
+        """
+        :param in_channels: dimension of input
+        :param out_channels: dimension of output
+        :param kernel_size: size of kernel
+        :param stride: size of stride
+        :param padding: size of padding
+        :param dilation: dilation rate
+        :param bias: boolean. if True, bias is included.
+        :param w_init: str. weight inits with xavier initialization.
+        """
+        super(Conv, self).__init__()
+
+        self.conv = nn.Conv1d(
+            in_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            bias=bias,
+        )
+
+    def forward(self, x):
+        x = x.contiguous().transpose(1, 2)
+        x = self.conv(x)
+        x = x.contiguous().transpose(1, 2)
+
+        return
 
 class PitchPredictor(nn.Module):
     def __init__(self,
@@ -245,15 +348,15 @@ class PitchPredictor(nn.Module):
         self.mean = mean
         self.std = std
         self.emb = nn.Embedding(256, hidden_channels)
-
-        self.pitch_net = attentions.Encoder(
-            hidden_channels,
-            filter_channels,
-            n_heads,
-            n_layers,
-            kernel_size,
-            p_dropout)
-        self.proj_f0 = nn.Conv1d(hidden_channels, 1, 1)
+        self.f0_predictor = VariancePredictor(hidden_channels,filter_channels,kernel_size,filter_channels,p_dropout)
+        # self.pitch_net = attentions.Encoder(
+        #     hidden_channels,
+        #     filter_channels,
+        #     n_heads,
+        #     n_layers,
+        #     kernel_size,
+        #     p_dropout)
+        # self.proj_f0 = nn.Conv1d(hidden_channels, 1, 1)
         if gin_channels != 0:
             self.cond = nn.Conv1d(gin_channels, hidden_channels, 1)
 
@@ -268,9 +371,10 @@ class PitchPredictor(nn.Module):
         if g is not None:
             g = torch.detach(g)
             x = x + self.cond(g)
-        x = self.pitch_net(x * x_mask, x_mask)
-        x = x * x_mask
-        pred_norm_f0 = self.proj_f0(x).squeeze(1)
+        # x = self.pitch_net(x * x_mask, x_mask)
+        # x = x * x_mask
+        # pred_norm_f0 = self.proj_f0(x).squeeze(1)
+        pred_norm_f0 = self.f0_predictor(x.transpose(1, 2),x_mask.transpose(1, 2)).squeeze(1)
         pred_f0 = self.denormalize(pred_norm_f0)
         if f0 is not None:
             embedding = self.emb(utils.f0_to_coarse(f0))
