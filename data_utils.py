@@ -10,7 +10,6 @@ import commons
 from mel_processing import spectrogram_torch
 from utils import load_wav_to_torch, load_filepaths_and_text
 from text import cleaned_text_to_sequence
-from text.pitch_id import pitch_id
 
 
 class TextAudioLoader(torch.utils.data.Dataset):
@@ -78,14 +77,6 @@ class TextAudioLoader(torch.utils.data.Dataset):
         phonemes_norm = torch.LongTensor(phonemes_norm)
         return phonemes_norm
 
-    def get_pitchid(self, note_pitch):
-        note_pitch_new = []
-        note_pitch = note_pitch.split(" ")
-        for note in note_pitch:
-            note = note.split("/")[0]
-            pitch = pitch_id[note]
-            note_pitch_new.append(pitch)
-        return torch.FloatTensor(np.array(note_pitch_new).astype(np.float32))
 
     def get_duration_flag(self, phn_dur):
         phn_dur = [int(i) for i in phn_dur.split(" ")]
@@ -269,15 +260,6 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         phonemes_norm = cleaned_text_to_sequence(phonemes.split(" "))
         phonemes_norm = torch.LongTensor(phonemes_norm)
         return phonemes_norm
-
-    def get_pitchid(self, note_pitch):
-        note_pitch_new = []
-        note_pitch = note_pitch.split(" ")
-        for note in note_pitch:
-            note = note.split("/")[0]
-            pitch = pitch_id[note]
-            note_pitch_new.append(pitch)
-        return torch.FloatTensor(np.array(note_pitch_new).astype(np.float32))
 
     def get_duration_flag(self, phn_dur):
         phn_dur = [int(i) for i in phn_dur.split(" ")]
