@@ -285,7 +285,7 @@ def evaluate(hps, generator, eval_loader, writer_eval):
             wav = wav[:1]
             wav_lengths = wav_lengths[:1]
             break
-        y_hat, mask, xx = generator.module.infer(phonemes, phonemes_lengths,
+        y_hat, mask, xx, pred_pitch = generator.module.infer(phonemes, phonemes_lengths,
                                                  max_len=1000)
         y_hat_lengths = mask.sum([1, 2]).long() * hps.data.hop_length
 
