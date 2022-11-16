@@ -222,6 +222,8 @@ class PhonemesPredictor(nn.Module):
 
 class PitchPredictor(nn.Module):
     def __init__(self,
+                 mean,
+                 std,
                  n_vocab,
                  gin_channels,
                  out_channels,
@@ -240,7 +242,8 @@ class PitchPredictor(nn.Module):
         self.n_layers = n_layers
         self.kernel_size = kernel_size
         self.p_dropout = p_dropout
-
+        self.mean = mean
+        self.std = std
         self.emb = nn.Embedding(256, hidden_channels)
 
         self.pitch_net = attentions.Encoder(
@@ -254,6 +257,12 @@ class PitchPredictor(nn.Module):
         if gin_channels != 0:
             self.cond = nn.Conv1d(gin_channels, hidden_channels, 1)
 
+    def normalize(self, f0):
+        return (f0-self.mean)/self.std
+
+    def denormalize(self, norm_f0):
+        return norm_f0*self.std+self.mean
+
     def forward(self, x, x_mask, f0=None, shift=None, g=None):
         x = torch.detach(x)
         if g is not None:
@@ -261,17 +270,17 @@ class PitchPredictor(nn.Module):
             x = x + self.cond(g)
         x = self.pitch_net(x * x_mask, x_mask)
         x = x * x_mask
-        pred_log_f0 = self.proj_f0(x).squeeze(1)
-
+        pred_norm_f0 = self.proj_f0(x).squeeze(1)
+        pred_f0 = self.denormalize(pred_norm_f0)
         if f0 is not None:
             embedding = self.emb(utils.f0_to_coarse(f0))
         else:
             shift = 1 if shift is None else shift
             embedding = self.emb(
-                utils.f0_to_coarse((torch.exp(pred_log_f0)-1)*shift)
+                utils.f0_to_coarse((pred_f0*shift))
             )
 
-        return pred_log_f0, embedding.transpose(1, 2)
+        return pred_norm_f0, pred_f0, embedding.transpose(1, 2)
 
 
 class TextEncoder(nn.Module):
@@ -635,6 +644,8 @@ class SynthesizerTrn(nn.Module):
                  n_speakers=0,
                  gin_channels=0,
                  use_sdp=False,
+                 f0_mean=171.21,
+                 f0_std = 128.9,
                  **kwargs):
 
         super().__init__()
@@ -679,7 +690,7 @@ class SynthesizerTrn(nn.Module):
         self.frame_prior_net = FramePriorNet(n_vocab, inter_channels, hidden_channels, filter_channels, n_heads,
                                              n_layers, kernel_size, p_dropout)
         # self.pitch_net = VariancePredictor()
-        self.pitch_net = PitchPredictor(n_vocab, gin_channels, inter_channels, hidden_channels, filter_channels,
+        self.pitch_net = PitchPredictor(f0_mean, f0_std, n_vocab, gin_channels, inter_channels, hidden_channels, filter_channels,
                                         n_heads,
                                         n_layers,
                                         kernel_size, p_dropout)
@@ -721,8 +732,8 @@ class SynthesizerTrn(nn.Module):
         pe[:, :, 1::2] = torch.cos(position * div_term)
         pe = pe.transpose(1, 2).to(x_frame.device)
         x_frame = x_frame + pe
-        pred_log_f0, pitch_embedding = self.pitch_net(x_frame, x_mask, f0=f0,g=g)
-        l_pitch = F.mse_loss(pred_log_f0, torch.log(f0+1))
+        pred_norm_f0,pred_f0, pitch_embedding = self.pitch_net(x_frame, x_mask, f0=f0,g=g)
+        l_pitch = F.mse_loss(pred_norm_f0, self.pitch_net.normalize(f0))
 
         x_frame = self.frame_prior_net(x_frame, pitch_embedding, x_mask)
         x_frame = x_frame.transpose(1, 2)
@@ -735,7 +746,7 @@ class SynthesizerTrn(nn.Module):
         # np.save("outwav.npy",o.cpu().detach().numpy())
         # np.save("phonemes.npy",phonemes.cpu().detach().numpy())
         return o, l_length, l_pitch, ids_slice, x_mask, y_mask, (
-        z, z_p, m_p, logs_p, m_q, logs_q), pred_log_f0
+        z, z_p, m_p, logs_p, m_q, logs_q), pred_f0
 
     def infer(self, phonemes, phonemes_lengths,
               sid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None):
@@ -762,7 +773,7 @@ class SynthesizerTrn(nn.Module):
         pe[:, :, 1::2] = torch.cos(position * div_term)
         pe = pe.transpose(1, 2).to(x_frame.device)
         x_frame = x_frame + pe
-        pred_log_f0, pitch_embedding = self.pitch_net(x_frame, x_mask,g=g)
+        pred_norm_f0, pred_f0, pitch_embedding  = self.pitch_net(x_frame, x_mask,g=g)
         x_frame = self.frame_prior_net(x_frame, pitch_embedding, x_mask)
         x_frame = x_frame.transpose(1, 2)
         m_p, logs_p = self.project(x_frame, x_mask)
@@ -770,7 +781,7 @@ class SynthesizerTrn(nn.Module):
         z = self.flow(z_p, x_mask, g=g, reverse=True)
         o = self.dec((z * x_mask)[:, :, :max_len], g=g)
 
-        return o, x_mask, (z, z_p, m_p, logs_p), pred_log_f0
+        return o, x_mask, (z, z_p, m_p, logs_p), pred_f0
 
     def voice_conversion(self, y, y_lengths, sid_src, sid_tgt):
         assert self.n_speakers > 0, "n_speakers have to be larger than 0."

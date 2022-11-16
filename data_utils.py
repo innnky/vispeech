@@ -242,10 +242,10 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         audiopath_and_text_new = []
         # 取出每一行的音频地址audiopath和音频内容text
 
-        for wav_path, phonemes, phn_dur in self.audiopaths_and_text:
+        for wav_path, phonemes, phn_dur, sid in self.audiopaths_and_text:
             # get_size获取文件大小（字节数），这里计算wav的长度，根据上方计算公式得出结果
             lengths.append(os.path.getsize(wav_path) // (2 * self.hop_length))
-            audiopath_and_text_new.append([wav_path, phonemes, phn_dur])
+            audiopath_and_text_new.append([wav_path, phonemes, phn_dur, sid])
         self.lengths = lengths
         self.audiopaths_and_text = audiopath_and_text_new
 
@@ -257,7 +257,7 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
 
         phonemes = self.get_phonemes(phonemes)
         phn_dur = self.get_duration_flag(phn_dur)
-        spk = torch.LongTensor(spk)
+        spk = torch.LongTensor([int(spk)])
         # 得到文本内容、频谱图、音频数据
         spec, wav = self.get_audio(wav_path)
         f0 = torch.FloatTensor(np.load(f"{wav_path}.f0.npy"))
@@ -398,7 +398,7 @@ class DistributedBucketSampler(torch.utils.data.distributed.DistributedSampler):
     Maintain similar input lengths in a batch.
     Length groups are specified by boundaries.
     Ex) boundaries = [b1, b2, b3] -> any batch is included either {x | b1 < length(x) <=b2} or {x | b2 < length(x) <= b3}.
-  
+
     It removes samples which are not included in the boundaries.
     Ex) boundaries = [b1, b2, b3] -> any x s.t. length(x) <= b1 or length(x) > b3 are discarded.
     """

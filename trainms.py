@@ -163,7 +163,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         with autocast(enabled=hps.train.fp16_run):
             time_3 = time.time()
             y_hat, l_length, l_pitch, ids_slice, x_mask, z_mask, \
-            (z, z_p, m_p, logs_p, m_q, logs_q), pred_log_f0 = net_g(phonemes, phonemes_lengths, f0, phndur,
+            (z, z_p, m_p, logs_p, m_q, logs_q), pred_f0 = net_g(phonemes, phonemes_lengths, f0, phndur,
                                                                  spec, spec_lengths, sid=sid)
             time_4 = time.time()
             mel = spec_to_mel_torch(
@@ -242,7 +242,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                     "slice/mel_org": utils.plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
                     "slice/mel_gen": utils.plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),
                     "all/mel": utils.plot_spectrogram_to_numpy(mel[0].data.cpu().numpy()),
-                    "all/f0": utils.plot_data_to_numpy(torch.log(f0+1)[0, :].cpu().numpy(), pred_log_f0[0, :].detach().cpu().numpy()),
+                    "all/f0": utils.plot_data_to_numpy(f0[0, :].cpu().numpy(), pred_f0[0, :].detach().cpu().numpy()),
                 }
                 utils.summarize(
                     writer=writer,
@@ -287,7 +287,7 @@ def evaluate(hps, generator, eval_loader, writer_eval):
             wav = wav[:1]
             wav_lengths = wav_lengths[:1]
             break
-        y_hat, mask, xx, pred_pitch = generator.module.infer(phonemes, phonemes_lengths,
+        y_hat, mask, xx, pred_f0 = generator.module.infer(phonemes, phonemes_lengths,
                                                  max_len=1000, sid=sid)
         y_hat_lengths = mask.sum([1, 2]).long() * hps.data.hop_length
 
@@ -309,7 +309,10 @@ def evaluate(hps, generator, eval_loader, writer_eval):
             hps.data.mel_fmax
         )
     image_dict = {
-        "gen/mel": utils.plot_spectrogram_to_numpy(y_hat_mel[0].cpu().numpy())
+        "gen/mel": utils.plot_spectrogram_to_numpy(y_hat_mel[0].cpu().numpy()),
+        "all/f0": utils.plot_data_to_numpy(f0[0, :].cpu().numpy(),
+                                           pred_f0[0, :].detach().cpu().numpy()),
+
     }
     audio_dict = {
         "gen/audio": y_hat[0, :, :y_hat_lengths[0]]
