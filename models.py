@@ -610,8 +610,8 @@ class FramePriorNet(nn.Module):
             kernel_size,
             p_dropout)
 
-    def forward(self, x_frame, pitch_embedding, x_mask):
-        x = x_frame + pitch_embedding
+    def forward(self, x_frame, x_mask):
+        x = x_frame
         x = self.fft_block(x * x_mask, x_mask)
         x = x.transpose(1, 2)
         return x
@@ -689,7 +689,6 @@ class SynthesizerTrn(nn.Module):
         self.lr = LengthRegulator(hop_length, sampling_rate)
         self.frame_prior_net = FramePriorNet(n_vocab, inter_channels, hidden_channels, filter_channels, n_heads,
                                              n_layers, kernel_size, p_dropout)
-        # self.pitch_net = VariancePredictor()
         self.pitch_net = PitchPredictor(f0_mean, f0_std, n_vocab, gin_channels, inter_channels, hidden_channels, filter_channels,
                                         n_heads,
                                         n_layers,
@@ -703,20 +702,28 @@ class SynthesizerTrn(nn.Module):
         else:
             g = None
 
-        # print(phonemes.shape,phonemes_lengths,phndur.shape,f0.shape,spec.shape)
+        # 文本编码
         x, x_mask = self.enc_p(phonemes, phonemes_lengths)
+
+        # 时长预测
         logw_ = torch.log(phndur.detach().float()+1).unsqueeze(1) * x_mask
         logw = self.dp(x, x_mask, g=g)
-        # 直接预测时长（s）
         l_loss = torch.sum((logw - logw_) ** 2, [1, 2])
         x_mask_sum = torch.sum(x_mask)
         l_length = l_loss / x_mask_sum
+
+        # f0预测
+        pred_norm_f0,pred_f0, pitch_embedding = self.pitch_net(x, x_mask, f0=f0,g=g)
+        l_pitch = F.mse_loss(pred_norm_f0, self.pitch_net.normalize(f0))
+        x += pitch_embedding
+
+        # 音素级别转换成帧级
         x_frame, x_lengths = self.lr(x, phndur, phonemes_lengths)
-        f0 = f0[:, :x_frame.shape[-1]]
+
+        # 补零对齐spec和帧级别输入
         spec_padded = torch.zeros(spec.shape[0],spec.shape[1],x_frame.shape[-1]).float().to(spec.device)
         spec_padded[:,:,:spec.shape[-1]]=spec
         spec = spec_padded.detach()
-        # print(x_frame.shape, f0.shape)
 
         x_frame = x_frame.to(x.device)
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x_frame.size(2)), 1).to(x.dtype)  # 更新x_mask矩阵
@@ -724,6 +731,8 @@ class SynthesizerTrn(nn.Module):
         max_len = x_frame.size(2)
         d_model = x_frame.size(1)
         batch_size = x_frame.size(0)
+
+        # Position Encoding
         pe = torch.zeros(batch_size, max_len, d_model)
         position = torch.arange(0, max_len).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2) *
@@ -732,10 +741,9 @@ class SynthesizerTrn(nn.Module):
         pe[:, :, 1::2] = torch.cos(position * div_term)
         pe = pe.transpose(1, 2).to(x_frame.device)
         x_frame = x_frame + pe
-        pred_norm_f0,pred_f0, pitch_embedding = self.pitch_net(x_frame, x_mask, f0=f0,g=g)
-        l_pitch = F.mse_loss(pred_norm_f0, self.pitch_net.normalize(f0))
 
-        x_frame = self.frame_prior_net(x_frame, pitch_embedding, x_mask)
+        # 帧优先级网络
+        x_frame = self.frame_prior_net(x_frame, x_mask)
         x_frame = x_frame.transpose(1, 2)
         m_p, logs_p = self.project(x_frame, x_mask)
         z, m_q, logs_q, y_mask = self.enc_q(spec, spec_lengths, g=g)
@@ -743,25 +751,31 @@ class SynthesizerTrn(nn.Module):
 
         z_slice, ids_slice = commons.rand_slice_segments(z, spec_lengths, self.segment_size)
         o = self.dec(z_slice, g=g)
-        # np.save("outwav.npy",o.cpu().detach().numpy())
-        # np.save("phonemes.npy",phonemes.cpu().detach().numpy())
         return o, l_length, l_pitch, ids_slice, x_mask, y_mask, (
         z, z_p, m_p, logs_p, m_q, logs_q), pred_f0
 
     def infer(self, phonemes, phonemes_lengths,
-              sid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None):
+              sid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None, shift=None):
         if self.n_speakers > 0:
             g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
         else:
             g = None
         x, x_mask = self.enc_p(phonemes, phonemes_lengths)
+        # 时长预测
         logw = self.dp(x, x_mask, g=g)
         w = (torch.exp(logw) * x_mask -1) * length_scale
         w = torch.ceil(w)
+
+        # f0预测
+        pred_norm_f0,pred_f0, pitch_embedding = self.pitch_net(x, x_mask,shift=shift, g=g)
+        x += pitch_embedding
+
+        # 扩帧
         x_frame, x_lengths = self.lr(x, w, phonemes_lengths)
         x_frame = x_frame.to(x.device)
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x_frame.size(2)), 1).to(x.dtype)
         x_mask = x_mask.to(x.device)
+
         max_len = x_frame.size(2)
         d_model = x_frame.size(1)
         batch_size = x_frame.size(0)
@@ -773,8 +787,8 @@ class SynthesizerTrn(nn.Module):
         pe[:, :, 1::2] = torch.cos(position * div_term)
         pe = pe.transpose(1, 2).to(x_frame.device)
         x_frame = x_frame + pe
-        pred_norm_f0, pred_f0, pitch_embedding  = self.pitch_net(x_frame, x_mask,g=g)
-        x_frame = self.frame_prior_net(x_frame, pitch_embedding, x_mask)
+
+        x_frame = self.frame_prior_net(x_frame, x_mask)
         x_frame = x_frame.transpose(1, 2)
         m_p, logs_p = self.project(x_frame, x_mask)
         z_p = m_p + torch.randn_like(m_p) * torch.exp(logs_p) * noise_scale

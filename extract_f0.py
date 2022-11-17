@@ -4,34 +4,34 @@ import pyworld
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
-import parselmouth
+# import parselmouth
 fs = 22050
 hop = 256
-
-def get_pitch(path,lll):
-    """
-    :param wav_data: [T]
-    :param mel: [T, 80]
-    :param config:
-    :return:
-    """
-    sampling_rate = fs
-    hop_length = hop
-    wav_data, _ = librosa.load(path,sampling_rate)
-    time_step = hop_length / sampling_rate * 1000
-    f0_min = 80
-    f0_max = 750
-
-    f0 = parselmouth.Sound(wav_data, sampling_rate).to_pitch_ac(
-        time_step=time_step / 1000, voicing_threshold=0.6,
-        pitch_floor=f0_min, pitch_ceiling=f0_max).selected_array["frequency"]
-    lpad = 2
-    rpad = lll - len(f0) - lpad
-    assert 0<=rpad<=2
-    f0 = np.pad(f0, [[lpad, rpad]], mode="constant")
-
-    return f0
-
+#
+# def get_pitch(path,lll):
+#     """
+#     :param wav_data: [T]
+#     :param mel: [T, 80]
+#     :param config:
+#     :return:
+#     """
+#     sampling_rate = fs
+#     hop_length = hop
+#     wav_data, _ = librosa.load(path,sampling_rate)
+#     time_step = hop_length / sampling_rate * 1000
+#     f0_min = 80
+#     f0_max = 750
+#
+#     f0 = parselmouth.Sound(wav_data, sampling_rate).to_pitch_ac(
+#         time_step=time_step / 1000, voicing_threshold=0.6,
+#         pitch_floor=f0_min, pitch_ceiling=f0_max).selected_array["frequency"]
+#     lpad = 2
+#     rpad = lll - len(f0) - lpad
+#     assert 0<=rpad<=2
+#     f0 = np.pad(f0, [[lpad, rpad]], mode="constant")
+#
+#     return f0
+#
 
 def compute_f0(path):
     x, sr = librosa.load(path, sr=fs)
@@ -47,22 +47,31 @@ def compute_f0(path):
         f0[index] = round(pitch, 1)
     return f0
 
-# i = 0
-# #
-# with open(filelist) as f:
-#     for line in f.readlines():
-#         wavpath = line.split("|")[0]
-#         f0 = compute_f0(wavpath)
-#         f0p = get_pitch(wavpath,len(f0))
-#         if len(f0p) != len(f0):
-#             print(len(f0p) ,len(f0))
-#         del f0
+i = 0
 #
-#         print(wavpath, i)
-#         i += 1
-#         np.save(wavpath+".f0.npy", f0p)
-plt.plot(np.load("dataset/mxj/mxj_61677.wav.f0.npy"))
-plt.show()
+outstr = ''
+with open(filelist) as f:
+    for line in f.readlines():
+        line = line.strip()
+        wavpath, raw_phones, raw_durations, spk = line.split("|")[0], line.split("|")[1], line.split("|")[2], line.split("|")[3]
+        durations = [int(i) for i in raw_durations.split(" ")]
+        phones = raw_phones.split(" ")
+        f0 = compute_f0(wavpath)
+        phf0s = []
+        current_frame = 0
+        for dur in durations:
+            phf0s.append(np.average(f0[current_frame:current_frame+dur]))
+            current_frame+=dur
+        assert abs(current_frame - len(f0)) <2
+        phf0s = " ".join(['{:.3f}'.format(i) for i in phf0s])
+        phf0s = phf0s.replace("nan", "0.000")
+        outstr  += f"{wavpath}|{raw_phones}|{raw_durations}|{spk}|{phf0s}\n"
+        print(wavpath, i, phf0s)
+        i += 1
+        np.save(wavpath+".f0.npy", f0)
+with open(filelist, "w") as f:
+    f.write(outstr)
+
 
 def normalize(f0paths, mean, std):
     max_value = np.finfo(np.float64).min
