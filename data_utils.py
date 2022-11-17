@@ -233,10 +233,10 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         audiopath_and_text_new = []
         # 取出每一行的音频地址audiopath和音频内容text
 
-        for wav_path, phonemes, phn_dur, sid in self.audiopaths_and_text:
+        for wav_path, phonemes, phn_dur, sid, phf0 in self.audiopaths_and_text:
             # get_size获取文件大小（字节数），这里计算wav的长度，根据上方计算公式得出结果
             lengths.append(os.path.getsize(wav_path) // (2 * self.hop_length))
-            audiopath_and_text_new.append([wav_path, phonemes, phn_dur, sid])
+            audiopath_and_text_new.append([wav_path, phonemes, phn_dur, sid, phf0])
         self.lengths = lengths
         self.audiopaths_and_text = audiopath_and_text_new
 
@@ -244,16 +244,17 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
     def get_audio_text_pair(self, audiopath_and_text):
         # separate filename and text
 
-        wav_path, phonemes, phn_dur, spk = audiopath_and_text
+        wav_path, phonemes, phn_dur, spk, phf0 = audiopath_and_text
 
         phonemes = self.get_phonemes(phonemes)
         phn_dur = self.get_duration_flag(phn_dur)
         spk = torch.LongTensor([int(spk)])
         # 得到文本内容、频谱图、音频数据
         spec, wav = self.get_audio(wav_path)
-        f0 = torch.FloatTensor(np.load(f"{wav_path}.f0.npy"))
-        assert abs(f0.shape[0] - sum(phn_dur))<2, wav_path
+        f0 = torch.FloatTensor([float(i) for i in phf0.strip().split(" ")])
+        assert abs(spec.shape[-1] - sum(phn_dur))<2, wav_path
         assert phonemes.shape ==phn_dur.shape, phonemes
+        assert phonemes.shape ==f0.shape
         return phonemes,f0, phn_dur, spec, wav, spk
 
     def get_phonemes(self, phonemes):
