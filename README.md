@@ -10,3 +10,4 @@
 ## 参考
 + [Period VITS](https://arxiv.org/pdf/2210.15964.pdf) 
 + [VISinger](https://github.com/So-Fann/VISinger) 
++ [FastSpeech2](https://github.com/ming024/FastSpeech2)
