@@ -2,7 +2,8 @@
 
 基于visinger的tts模型
 
-（暂时还在开发调试中）（暂时效果不佳）
+（暂时还在开发调试中）
+音频sample见[samples](/samples)
 ## 相比于原版vits
 + 删除了 Monotonoic Alignment， 使用MFA对齐后输入时长
 + 添加了音素级 F0Predictor
