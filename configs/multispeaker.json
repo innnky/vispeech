@@ -49,6 +49,9 @@
     "use_spectral_norm": false,
     "gin_channels": 256,
     "f0_mean": 171.21,
-    "f0_std": 128.9
+    "f0_std": 128.9,
+    "subbands": 4,
+    "gen_istft_n_fft": 16,
+    "gen_istft_hop_size": 4
   }
 }

@@ -162,7 +162,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         time_2 = time.time()
         with autocast(enabled=hps.train.fp16_run):
             time_3 = time.time()
-            y_hat, l_length, l_pitch, ids_slice, x_mask, z_mask, \
+            y_hat,y_hat_mb, l_length, l_pitch, ids_slice, x_mask, z_mask, \
             (z, z_p, m_p, logs_p, m_q, logs_q), pred_f0 = net_g(phonemes, phonemes_lengths, f0, phndur,
                                                                  spec, spec_lengths, sid=sid)
             time_4 = time.time()
