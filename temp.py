@@ -31,7 +31,9 @@ def get_pitch(path,lll):
     lpad = 2
     rpad = lll - len(f0) - lpad
     assert 0<=rpad<=2
+    print( lll- len(wav_data)//hop_length)
     f0 = np.pad(f0, [[lpad, rpad]], mode="constant")
+
 
     return f0
 
