@@ -693,10 +693,11 @@ class SynthesizerTrn(nn.Module):
                                         n_heads,
                                         n_layers,
                                         kernel_size, p_dropout)
+        self.emotion_predictor = VariancePredictor(hidden_channels,gin_channels)
         if n_speakers > 1:
             self.emb_g = nn.Embedding(n_speakers, gin_channels)
 
-    def forward(self, phonemes, phonemes_lengths, f0, phndur, spec, spec_lengths, sid=None):
+    def forward(self, phonemes, phonemes_lengths, f0, arousal, phndur, spec, spec_lengths, sid=None):
         if self.n_speakers > 0:
             g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
         else:
@@ -711,6 +712,11 @@ class SynthesizerTrn(nn.Module):
         l_loss = torch.sum((logw - logw_) ** 2, [1, 2])
         x_mask_sum = torch.sum(x_mask)
         l_length = l_loss / x_mask_sum
+
+        #  情感强度预测
+        pred_arousal, arousal_emb = self.emotion_predictor(x, arousal, g=g)
+        x += arousal_emb
+        l_arousal = F.mse_loss(pred_arousal, arousal)
 
         # f0预测
         pred_norm_f0,pred_f0, pitch_embedding = self.pitch_net(x, x_mask, f0=f0,g=g)
@@ -751,11 +757,11 @@ class SynthesizerTrn(nn.Module):
 
         z_slice, ids_slice = commons.rand_slice_segments(z, spec_lengths, self.segment_size)
         o = self.dec(z_slice, g=g)
-        return o, l_length, l_pitch, ids_slice, x_mask, y_mask, (
-        z, z_p, m_p, logs_p, m_q, logs_q), pred_f0
+        return o, l_length, l_pitch, l_arousal, ids_slice, x_mask, y_mask, (
+        z, z_p, m_p, logs_p, m_q, logs_q), pred_f0, pred_arousal
 
     def infer(self, phonemes, phonemes_lengths,
-              sid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None, shift=None):
+              sid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None, shift=None,arousal_shift=None):
         if self.n_speakers > 0:
             g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
         else:
@@ -765,6 +771,9 @@ class SynthesizerTrn(nn.Module):
         logw = self.dp(x, x_mask, g=g)
         w = (torch.exp(logw) * x_mask -1) * length_scale
         w = torch.ceil(w)
+
+        pred_arousal, arousal_emb = self.emotion_predictor(x,arousal_shift=arousal_shift,g=g)
+        x += arousal_emb
 
         # f0预测
         pred_norm_f0,pred_f0, pitch_embedding = self.pitch_net(x, x_mask,shift=shift, g=g)
