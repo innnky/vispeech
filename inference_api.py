@@ -32,9 +32,8 @@ _ = net_g.eval()
 _ = utils.load_checkpoint("ckpts/paimeng.pth", net_g, None)
 import time
 import numpy as np
-import soundfile
 def tts(txt):
-    audio = None
+    audioname = None
     if mutex.acquire(blocking=False):
         try:
             stn_tst = get_text(txt)
@@ -47,12 +46,12 @@ def tts(txt):
                 audio = net_g.infer(x_tst, x_tst_lengths, noise_scale=.667, noise_scale_w=0.8,sid=spk,
                                             length_scale=1)[0][0, 0].data.float().numpy()
                 t2 = time.time()
-                soundfile.write("audio.wav", audio, 22050)
-                os.system("ffmpeg -y -i audio.wav  -ac 1 -ar 22050 converted.wav")
+                audioname = "converted.wav"
+                write(audioname ,22050, audio)
                 print("推理时间：", (t2 - t1), "s")
         finally:
             mutex.release()
-    return "converted.wav"
+    return audioname
 
 @app.route('/tts')
 def text_api():
