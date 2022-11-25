@@ -30,9 +30,10 @@ from losses import (
     generator_loss,
     discriminator_loss,
     feature_loss,
-    kl_loss
+    kl_loss, subband_stft_loss
 )
 from mel_processing import mel_spectrogram_torch, spec_to_mel_torch
+from pqmf import PQMF
 from text.symbols import symbols
 
 torch.backends.cudnn.benchmark = True
@@ -209,7 +210,10 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
 
                 loss_fm = feature_loss(fmap_r, fmap_g)
                 loss_gen, losses_gen = generator_loss(y_d_hat_g)
-                loss_gen_all = loss_gen + loss_fm + loss_mel + loss_dur + loss_kl + loss_pitch
+                pqmf = PQMF(wav.device)
+                y_mb = pqmf.analysis(wav)
+                loss_subband = subband_stft_loss(hps, y_mb, y_hat_mb)
+                loss_gen_all = loss_gen + loss_fm + loss_mel + loss_dur + loss_kl + loss_pitch+ loss_subband
         time_9 = time.time()
         optim_g.zero_grad()
         scaler.scale(loss_gen_all).backward()
@@ -223,7 +227,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         if rank == 0:
             if global_step % hps.train.log_interval == 0:
                 lr = optim_g.param_groups[0]['lr']
-                losses = [loss_disc, loss_gen, loss_fm, loss_mel, loss_dur, loss_kl, loss_pitch]
+                losses = [loss_disc, loss_gen, loss_fm, loss_mel, loss_dur, loss_kl, loss_pitch,loss_subband]
                 logger.info('Train Epoch: {} [{:.0f}%]'.format(
                     epoch,
                     100. * batch_idx / len(train_loader)))
@@ -233,7 +237,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                                "grad_norm_d": grad_norm_d, "grad_norm_g": grad_norm_g}
                 scalar_dict.update(
                     {"loss/g/fm": loss_fm, "loss/g/mel": loss_mel, "loss/g/dur": loss_dur, "loss/g/kl": loss_kl,
-                     "loss/g/pitch": loss_pitch})
+                     "loss/g/pitch": loss_pitch, "loss/g/subband":loss_subband})
 
                 scalar_dict.update({"loss/g/{}".format(i): v for i, v in enumerate(losses_gen)})
                 scalar_dict.update({"loss/d_r/{}".format(i): v for i, v in enumerate(losses_disc_r)})

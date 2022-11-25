@@ -6,6 +6,7 @@ from torch import nn
 from torch.nn import functional as F
 from torch import Tensor
 import numpy as np
+from pqmf import PQMF
 
 import commons
 import modules
@@ -617,6 +618,86 @@ class FramePriorNet(nn.Module):
         x = x.transpose(1, 2)
         return x
 
+class Multiband_iSTFT_Generator(torch.nn.Module):
+    def __init__(self, initial_channel, resblock, resblock_kernel_sizes, resblock_dilation_sizes, upsample_rates,
+                 upsample_initial_channel, upsample_kernel_sizes, gen_istft_n_fft, gen_istft_hop_size, subbands,
+                 gin_channels=0):
+        super(Multiband_iSTFT_Generator, self).__init__()
+        # self.h = h
+        self.subbands = subbands
+        self.num_kernels = len(resblock_kernel_sizes)
+        self.num_upsamples = len(upsample_rates)
+        self.conv_pre = weight_norm(Conv1d(initial_channel, upsample_initial_channel, 7, 1, padding=3))
+        resblock = modules.ResBlock1 if resblock == '1' else modules.ResBlock2
+
+        self.ups = nn.ModuleList()
+        for i, (u, k) in enumerate(zip(upsample_rates, upsample_kernel_sizes)):
+            self.ups.append(weight_norm(
+                ConvTranspose1d(upsample_initial_channel // (2 ** i), upsample_initial_channel // (2 ** (i + 1)),
+                                k, u, padding=(k - u) // 2)))
+
+        self.resblocks = nn.ModuleList()
+        for i in range(len(self.ups)):
+            ch = upsample_initial_channel // (2 ** (i + 1))
+            for j, (k, d) in enumerate(zip(resblock_kernel_sizes, resblock_dilation_sizes)):
+                self.resblocks.append(resblock(ch, k, d))
+
+        self.post_n_fft = gen_istft_n_fft
+        self.ups.apply(init_weights)
+        self.reflection_pad = torch.nn.ReflectionPad1d((1, 0))
+        self.reshape_pixelshuffle = []
+
+        self.subband_conv_post = weight_norm(Conv1d(ch, self.subbands * (self.post_n_fft + 2), 7, 1, padding=3))
+
+        self.subband_conv_post.apply(init_weights)
+
+        self.gen_istft_n_fft = gen_istft_n_fft
+        self.gen_istft_hop_size = gen_istft_hop_size
+
+    def forward(self, x, g=None):
+        stft = TorchSTFT(filter_length=self.gen_istft_n_fft, hop_length=self.gen_istft_hop_size,
+                         win_length=self.gen_istft_n_fft).to(x.device)
+        pqmf = PQMF(x.device)
+
+        x = self.conv_pre(x)  # [B, ch, length]
+
+        for i in range(self.num_upsamples):
+            x = F.leaky_relu(x, modules.LRELU_SLOPE)
+            x = self.ups[i](x)
+
+            xs = None
+            for j in range(self.num_kernels):
+                if xs is None:
+                    xs = self.resblocks[i * self.num_kernels + j](x)
+                else:
+                    xs += self.resblocks[i * self.num_kernels + j](x)
+            x = xs / self.num_kernels
+
+        x = F.leaky_relu(x)
+        x = self.reflection_pad(x)
+        x = self.subband_conv_post(x)
+        x = torch.reshape(x, (x.shape[0], self.subbands, x.shape[1] // self.subbands, x.shape[-1]))
+
+        spec = torch.exp(x[:, :, :self.post_n_fft // 2 + 1, :])
+        phase = math.pi * torch.sin(x[:, :, self.post_n_fft // 2 + 1:, :])
+
+        y_mb_hat = stft.inverse(
+            torch.reshape(spec, (spec.shape[0] * self.subbands, self.gen_istft_n_fft // 2 + 1, spec.shape[-1])),
+            torch.reshape(phase, (phase.shape[0] * self.subbands, self.gen_istft_n_fft // 2 + 1, phase.shape[-1])))
+        y_mb_hat = torch.reshape(y_mb_hat, (x.shape[0], self.subbands, 1, y_mb_hat.shape[-1]))
+        y_mb_hat = y_mb_hat.squeeze(-2)
+
+        y_g_hat = pqmf.synthesis(y_mb_hat)
+
+        return y_g_hat, y_mb_hat
+
+    def remove_weight_norm(self):
+        print('Removing weight norm...')
+        for l in self.ups:
+            remove_weight_norm(l)
+        for l in self.resblocks:
+            l.remove_weight_norm()
+
 class Multistream_iSTFT_Generator(torch.nn.Module):
     def __init__(self, initial_channel, resblock, resblock_kernel_sizes, resblock_dilation_sizes, upsample_rates,
                  upsample_initial_channel, upsample_kernel_sizes, gen_istft_n_fft, gen_istft_hop_size, subbands,
@@ -773,10 +854,10 @@ class SynthesizerTrn(nn.Module):
                                  n_layers,
                                  kernel_size,
                                  p_dropout)
-        self.dec = Multistream_iSTFT_Generator(inter_channels, resblock, resblock_kernel_sizes,
-                                               resblock_dilation_sizes, upsample_rates, upsample_initial_channel,
-                                               upsample_kernel_sizes, gen_istft_n_fft, gen_istft_hop_size, subbands,
-                                               gin_channels=gin_channels)
+        self.mb_dec = Multiband_iSTFT_Generator(inter_channels, resblock, resblock_kernel_sizes,
+                                                 resblock_dilation_sizes, upsample_rates, upsample_initial_channel,
+                                                 upsample_kernel_sizes, gen_istft_n_fft, gen_istft_hop_size, subbands,
+                                                 gin_channels=gin_channels)
         self.enc_q = PosteriorEncoder(spec_channels, inter_channels, hidden_channels, 5, 1, 16,
                                       gin_channels=gin_channels)
         self.flow = ResidualCouplingBlock(inter_channels, hidden_channels, 5, 1, 4, gin_channels=gin_channels)
@@ -846,7 +927,7 @@ class SynthesizerTrn(nn.Module):
         z_p = self.flow(z, y_mask, g=g)
 
         z_slice, ids_slice = commons.rand_slice_segments(z, spec_lengths, self.segment_size)
-        o, o_mb = self.dec(z_slice, g=g)
+        o, o_mb = self.mb_dec(z_slice, g=g)
         return o,o_mb, l_length, l_pitch, ids_slice, x_mask, y_mask, (
         z, z_p, m_p, logs_p, m_q, logs_q), pred_f0
 
@@ -889,7 +970,7 @@ class SynthesizerTrn(nn.Module):
         m_p, logs_p = self.project(x_frame, x_mask)
         z_p = m_p + torch.randn_like(m_p) * torch.exp(logs_p) * noise_scale
         z = self.flow(z_p, x_mask, g=g, reverse=True)
-        o, o_mb = self.dec((z * x_mask)[:, :, :max_len], g=g)
+        o, o_mb = self.mb_dec((z * x_mask)[:, :, :max_len], g=g)
 
         return o, x_mask, (z, z_p, m_p, logs_p), pred_f0
 
