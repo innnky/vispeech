@@ -59,7 +59,10 @@ def preprocess_chinese(text):
       if pyin in pu_symbols:
           phones.append(pyin)
       else:
-          phones += pinyin2ph[pyin]
+          try:
+            phones += pinyin2ph[pyin]
+          except:
+            pass
   return phones
 
 def read_lexicon(lex_path):
@@ -84,7 +87,9 @@ def preprocess_english(text):
         if w.lower() in lexicon:
             phones += lexicon[w.lower()]
         else:
-            phones += list(filter(lambda p: p != " ", g2p(w)))
+            for ch in w:
+                if ch != " ":
+                    phones += g2p(ch)
     phones = "}{".join(phones)
     phones = re.sub(r"\{[^\w\s]?\}", "{sil}", phones)
     phones = phones.replace("}{", " ")

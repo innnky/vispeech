@@ -58,10 +58,10 @@ class Conv(nn.Module):
 class VariancePredictor(nn.Module):
     """Duration, Pitch and Energy Predictor"""
 
-    def __init__(self):
+    def __init__(self, input_size):
         super(VariancePredictor, self).__init__()
 
-        self.input_size = 192
+        self.input_size = input_size
         self.filter_size = 768
         self.kernel = 3
         self.conv_output_size = 768
@@ -99,24 +99,14 @@ class VariancePredictor(nn.Module):
         )
 
         self.linear_layer = nn.Linear(self.conv_output_size, 1)
-        self.pitch_bins = nn.Parameter(
-            torch.linspace(2.1012, 9.6680, 120),
-            requires_grad=False,
-        )
-        self.pitch_embedding = nn.Embedding(
-            121, 192
-        )
+        self.proj = nn.Linear(1, self.input_size)
 
     def forward(self, encoder_output):
+        encoder_output = encoder_output.transpose(1, 2)
         # encoder_output size: [batch_size, max_len, hidden_channels]
         out = self.conv_layer(encoder_output)
         out = self.linear_layer(out)
-        prediction = out.squeeze(-1)
-        embedding = self.pitch_embedding(
-            torch.bucketize(prediction, self.pitch_bins)
-        )
-
-        return prediction, embedding
+        return out.squeeze(-1)
 
 
 class Swish(nn.Module):

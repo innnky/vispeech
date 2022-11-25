@@ -248,40 +248,31 @@ class PitchPredictor(nn.Module):
         self.std = std
         self.emb = nn.Embedding(256, hidden_channels)
 
-        self.pitch_net = attentions.Encoder(
-            hidden_channels,
-            filter_channels,
-            n_heads,
-            n_layers,
-            kernel_size,
-            p_dropout)
-        self.proj_f0 = nn.Conv1d(hidden_channels, 1, 1)
+        self.predictor = VariancePredictor(hidden_channels)
         if gin_channels != 0:
             self.cond = nn.Conv1d(gin_channels, hidden_channels, 1)
 
     def normalize(self, f0):
-        return (f0-self.mean)/self.std
+        return (f0 - self.mean) / self.std
 
     def denormalize(self, norm_f0):
-        return norm_f0*self.std+self.mean
+        return norm_f0 * self.std + self.mean
 
     def forward(self, x, x_mask, f0=None, shift=None, g=None):
         x = torch.detach(x)
         if g is not None:
             g = torch.detach(g)
             x = x + self.cond(g)
-        x = self.pitch_net(x * x_mask, x_mask)
-        x = x * x_mask
-        pred_norm_f0 = self.proj_f0(x).squeeze(1)
+
+        pred_norm_f0 = self.predictor(x)
         pred_f0 = self.denormalize(pred_norm_f0)
         if f0 is not None:
             embedding = self.emb(utils.f0_to_coarse(f0))
         else:
             shift = 1 if shift is None else shift
             embedding = self.emb(
-                utils.f0_to_coarse((pred_f0*shift))
+                utils.f0_to_coarse((pred_f0 * shift))
             )
-
         return pred_norm_f0, pred_f0, embedding.transpose(1, 2)
 
 
@@ -866,7 +857,7 @@ class SynthesizerTrn(nn.Module):
         self.lr = LengthRegulator(hop_length, sampling_rate)
         self.frame_prior_net = FramePriorNet(n_vocab, inter_channels, hidden_channels, filter_channels, n_heads,
                                              n_layers, kernel_size, p_dropout)
-        self.pitch_net = PitchPredictor(f0_mean, f0_std, n_vocab, gin_channels, inter_channels, hidden_channels, filter_channels,
+        self.pitch_predictor = PitchPredictor(f0_mean, f0_std, n_vocab, gin_channels, inter_channels, hidden_channels, filter_channels,
                                         n_heads,
                                         n_layers,
                                         kernel_size, p_dropout)
