@@ -7,4 +7,4 @@ jieba
 cn2an
 pypinyin==0.47.
 g2p_en
-
+pydub

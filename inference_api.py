@@ -1,17 +1,17 @@
+import logging
+
 import torch
-import commons
 import utils
 from models import SynthesizerTrn
 from text.symbols import symbols
 from text import text_to_sequence
-import io
 from scipy.io.wavfile import write
-import os
-from flask import Flask, request, send_file
+import pydub
+from flask import Flask, request, send_file, Response
 import threading
 app = Flask(__name__)
-mutex = threading.Lock()
-
+logging.getLogger("pydub").setLevel(logging.WARNING)
+semaphore = threading.Semaphore(2)
 def get_text(text):
 
     text_norm = text_to_sequence(text+"。")
@@ -28,13 +28,18 @@ net_g = SynthesizerTrn(
   **hps.model)
 
 _ = net_g.eval()
-
-_ = utils.load_checkpoint("ckpts/paimeng.pth", net_g, None)
+_ = utils.load_checkpoint("ckpts/paimon.pth", net_g, None)
 import time
 import numpy as np
+
+def convert2mp3(wav, sr):
+    data = np.int8(wav * 2 ** 7)
+    song = pydub.AudioSegment(data.tobytes(), frame_rate=sr, sample_width=1, channels=1)
+    return song.export(None, format="mp3", bitrate="320k")
+
 def tts(txt):
-    audioname = None
-    if mutex.acquire(blocking=False):
+    res = None
+    if semaphore.acquire(blocking=False):
         try:
             stn_tst = get_text(txt)
             with torch.no_grad():
@@ -46,12 +51,11 @@ def tts(txt):
                 audio = net_g.infer(x_tst, x_tst_lengths, noise_scale=.667, noise_scale_w=0.8,sid=spk,
                                             length_scale=1)[0][0, 0].data.float().numpy()
                 t2 = time.time()
-                audioname = "converted.wav"
-                write(audioname ,22050, audio)
+                res = convert2mp3(audio, 22050)
                 print("推理时间：", (t2 - t1), "s")
         finally:
-            mutex.release()
-    return audioname
+            semaphore.release()
+    return res
 
 @app.route('/tts')
 def text_api():
@@ -59,8 +63,7 @@ def text_api():
     audio = tts(text)
     if audio is None:
         return "服务器忙"
-    return send_file(audio,as_attachment=True)
-
+    return Response(audio, mimetype='audio/mpeg')
 
 if __name__ == '__main__':
    app.run("0.0.0.0", 8080)
