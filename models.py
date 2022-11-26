@@ -881,8 +881,8 @@ class SynthesizerTrn(nn.Module):
         l_length = l_loss / x_mask_sum
 
         # f0预测
-        pred_norm_f0,pred_f0, pitch_embedding = self.pitch_net(x, x_mask, f0=f0,g=g)
-        l_pitch = F.mse_loss(pred_norm_f0, self.pitch_net.normalize(f0))
+        pred_norm_f0,pred_f0, pitch_embedding = self.pitch_predictor(x, x_mask, f0=f0,g=g)
+        l_pitch = F.mse_loss(pred_norm_f0, self.pitch_predictor.normalize(f0))
         x += pitch_embedding
 
         # 音素级别转换成帧级
@@ -935,7 +935,7 @@ class SynthesizerTrn(nn.Module):
         w = torch.ceil(w)
 
         # f0预测
-        pred_norm_f0,pred_f0, pitch_embedding = self.pitch_net(x, x_mask,shift=shift, g=g)
+        pred_norm_f0,pred_f0, pitch_embedding = self.pitch_predictor(x, x_mask,shift=shift, g=g)
         x += pitch_embedding
 
         # 扩帧
