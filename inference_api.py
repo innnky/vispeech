@@ -11,6 +11,7 @@ from flask import Flask, request, send_file, Response
 import threading
 app = Flask(__name__)
 logging.getLogger("pydub").setLevel(logging.WARNING)
+# 最大并发数 2
 semaphore = threading.Semaphore(2)
 def get_text(text):
 
@@ -35,7 +36,8 @@ import numpy as np
 def convert2mp3(wav, sr):
     data = np.int8(wav * 2 ** 7)
     song = pydub.AudioSegment(data.tobytes(), frame_rate=sr, sample_width=1, channels=1)
-    return song.export(None, format="mp3", bitrate="320k")
+    # return song.export(None, format="mp3", bitrate="320k")
+    return song.export(None, format="wav")
 
 def tts(txt):
     res = None
@@ -63,7 +65,7 @@ def text_api():
     audio = tts(text)
     if audio is None:
         return "服务器忙"
-    return Response(audio, mimetype='audio/mpeg')
+    return Response(audio, mimetype='audio/wav')
 
 if __name__ == '__main__':
    app.run("0.0.0.0", 8080)
