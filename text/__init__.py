@@ -24,7 +24,6 @@ def number_to_chinese(text):
     return text
 
 def chinese_to_bopomofo(text):
-    text = text.replace('、', '，').replace('；', '，').replace('：', '，')
     words = jieba.lcut(text, cut_all=False)
     text = ''
     for word in words:
@@ -36,8 +35,8 @@ def chinese_to_bopomofo(text):
     return text.strip()
 
 def str_replace( data):
-    chinaTab = ['：', '；', '，', '。', '！', '？', '【', '】', '“', '（', '）', '%', '#', '@', '&', "‘", ' ', '\n', '”',"—", "·",'、']
-    englishTab = [':', ';', ',', '.', '!', '?', '[', ']', '"', '(', ')', '%', '#', '@', '&', "'", ' ', '', '"', "-", "-", ","]
+    chinaTab = ['：', '；', '，', '。', '！', '？', '【', '】', '“', '（', '）', '%', '#', '@', '&', "‘", ' ', '\n', '”',"—", "·",'、',"～","─"]
+    englishTab = [':', ';', ',', '.', '!', '?', '[', ']', '"', '(', ')', '%', '#', '@', '&', "'", ' ', '', '"', "-", "-", ",","~","-"]
     for index in range(len(chinaTab)):
         if chinaTab[index] in data:
             data = data.replace(chinaTab[index], englishTab[index])
@@ -45,10 +44,14 @@ def str_replace( data):
 
 def clean_zh(text):
     rt = text
+
+    text = text.replace(';', ',').replace(':', ',')\
+        .replace('~', ',')\
+        .replace("-", "…")
     text = number_to_chinese(text)
     text = chinese_to_bopomofo(text)
     # text = unicodedata.normalize('NFKD', text)
-    text = str_replace(text)
+
     ch = " ".join([ch for  ch in text.split(" ") if ch in all_pinyin or ch in pu_symbols])
     return ch.strip()
 
@@ -192,7 +195,16 @@ class MixFrontend:
 
 mf = MixFrontend()
 
+def delete_unsupport_symbol(data):
+    delete_symbols = ['【', '】', '“', '（', '）', '%', '#', '@', '&', "‘", '”', '「', "」"]
+    for index in range(len(delete_symbols)):
+        if delete_symbols[index] in data:
+            data = data.replace(delete_symbols[index], "")
+    return data
 def text_to_sequence(text):
+    text = delete_unsupport_symbol(text)
+    text = str_replace(text)
+
     segs = mf.get_segment(text)
     phones = []
     for seg in segs:
@@ -200,6 +212,8 @@ def text_to_sequence(text):
             phones += preprocess_chinese(seg[0])
         elif seg[1] == "en":
             phones += preprocess_english(seg[0])
+    # print(phones)
+    phones.append(",")
     # print(phones)
     return cleaned_text_to_sequence(phones)
 if __name__ == '__main__':

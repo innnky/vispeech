@@ -1,5 +1,6 @@
 import logging
 
+import soundfile
 import torch
 import utils
 from models import SynthesizerTrn
@@ -12,7 +13,7 @@ import threading
 app = Flask(__name__)
 logging.getLogger("pydub").setLevel(logging.WARNING)
 # 最大并发数 2
-semaphore = threading.Semaphore(2)
+semaphore = threading.Semaphore(1)
 def get_text(text):
 
     text_norm = text_to_sequence(text+"。")
@@ -33,11 +34,11 @@ _ = utils.load_checkpoint("ckpts/paimon.pth", net_g, None)
 import time
 import numpy as np
 
-def convert2mp3(wav, sr):
-    data = np.int8(wav * 2 ** 7)
-    song = pydub.AudioSegment(data.tobytes(), frame_rate=sr, sample_width=1, channels=1)
-    # return song.export(None, format="mp3", bitrate="320k")
-    return song.export(None, format="wav")
+# def convert2mp3(wav, sr):
+#     data = np.int16(wav * 2 ** 7)
+#     song = pydub.AudioSegment(data.tobytes(), frame_rate=sr, sample_width=1, channels=1)
+#     # return song.export(None, format="mp3", bitrate="320k")
+#     return song.export(None, format="wav")
 
 def tts(txt):
     res = None
@@ -53,7 +54,9 @@ def tts(txt):
                 audio = net_g.infer(x_tst, x_tst_lengths, noise_scale=.667, noise_scale_w=0.8,sid=spk,
                                             length_scale=1)[0][0, 0].data.float().numpy()
                 t2 = time.time()
-                res = convert2mp3(audio, 22050)
+                soundfile.write("temp.wav", audio, 22050)
+                res = "temp.wav"
+                # res = convert2mp3(audio, 22050)
                 print("推理时间：", (t2 - t1), "s")
         finally:
             semaphore.release()
@@ -65,7 +68,7 @@ def text_api():
     audio = tts(text)
     if audio is None:
         return "服务器忙"
-    return Response(audio, mimetype='audio/wav')
+    return send_file(audio, mimetype='audio/wav')
 
 if __name__ == '__main__':
    app.run("0.0.0.0", 8080)
