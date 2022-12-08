@@ -147,7 +147,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
     net_d.train()
 
     for batch_idx, (phonemes, phonemes_lengths,
-                    f0,
+                    f0,energy,
                     phndur,
                     spec, spec_lengths, wav, wav_lengths, sid) in enumerate(train_loader):
 
@@ -155,6 +155,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         phonemes, phonemes_lengths = phonemes.cuda(rank, non_blocking=True), phonemes_lengths.cuda(rank,
                                                                                                    non_blocking=True)
         f0 = f0.cuda(rank, non_blocking=True)
+        energy = energy.cuda(rank, non_blocking=True)
         phndur = phndur.cuda(rank, non_blocking=True)
         spec, spec_lengths = spec.cuda(rank, non_blocking=True), spec_lengths.cuda(rank, non_blocking=True)
         wav, wav_lengths = wav.cuda(rank, non_blocking=True), wav_lengths.cuda(rank, non_blocking=True)
@@ -162,8 +163,8 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         time_2 = time.time()
         with autocast(enabled=hps.train.fp16_run):
             time_3 = time.time()
-            y_hat, l_length, l_pitch, ids_slice, x_mask, z_mask, \
-            (z, z_p, m_p, logs_p, m_q, logs_q), pred_f0 = net_g(phonemes, phonemes_lengths, f0, phndur,
+            y_hat, l_length, l_pitch,l_energy, ids_slice, x_mask, z_mask, \
+            (z, z_p, m_p, logs_p, m_q, logs_q), pred_f0, pred_norm_energy, norm_energy= net_g(phonemes, phonemes_lengths, f0, energy, phndur,
                                                                  spec, spec_lengths, sid=sid)
             time_4 = time.time()
             mel = spec_to_mel_torch(
@@ -204,12 +205,13 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
             with autocast(enabled=False):
                 loss_dur = torch.sum(l_length.float())
                 loss_pitch = torch.sum(l_pitch.float())
+                loss_energy = torch.sum(l_energy.float())
                 loss_mel = F.l1_loss(y_mel, y_hat_mel) * hps.train.c_mel
                 loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * hps.train.c_kl
 
                 loss_fm = feature_loss(fmap_r, fmap_g)
                 loss_gen, losses_gen = generator_loss(y_d_hat_g)
-                loss_gen_all = loss_gen + loss_fm + loss_mel + loss_dur + loss_kl + loss_pitch
+                loss_gen_all = loss_gen + loss_fm + loss_mel + loss_dur + loss_kl + loss_pitch + loss_energy
         time_9 = time.time()
         optim_g.zero_grad()
         scaler.scale(loss_gen_all).backward()
@@ -223,7 +225,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         if rank == 0:
             if global_step % hps.train.log_interval == 0:
                 lr = optim_g.param_groups[0]['lr']
-                losses = [loss_disc, loss_gen, loss_fm, loss_mel, loss_dur, loss_kl, loss_pitch]
+                losses = [loss_disc, loss_gen, loss_fm, loss_mel, loss_dur, loss_kl, loss_pitch,loss_energy]
                 logger.info('Train Epoch: {} [{:.0f}%]'.format(
                     epoch,
                     100. * batch_idx / len(train_loader)))
@@ -233,7 +235,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                                "grad_norm_d": grad_norm_d, "grad_norm_g": grad_norm_g}
                 scalar_dict.update(
                     {"loss/g/fm": loss_fm, "loss/g/mel": loss_mel, "loss/g/dur": loss_dur, "loss/g/kl": loss_kl,
-                     "loss/g/pitch": loss_pitch})
+                     "loss/g/pitch": loss_pitch,"loss/g/energy":loss_energy})
 
                 scalar_dict.update({"loss/g/{}".format(i): v for i, v in enumerate(losses_gen)})
                 scalar_dict.update({"loss/d_r/{}".format(i): v for i, v in enumerate(losses_disc_r)})
@@ -243,6 +245,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                     "slice/mel_gen": utils.plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),
                     "all/mel": utils.plot_spectrogram_to_numpy(mel[0].data.cpu().numpy()),
                     "all/f0": utils.plot_data_to_numpy(f0[0, :].cpu().numpy(), pred_f0[0, :].detach().cpu().numpy()),
+                    "all/energy": utils.plot_data_to_numpy(norm_energy[0, :].cpu().numpy(), pred_norm_energy[0, :].detach().cpu().numpy()),
                 }
                 utils.summarize(
                     writer=writer,
@@ -268,10 +271,10 @@ def evaluate(hps, generator, eval_loader, writer_eval):
     audio_dict = {}
     with torch.no_grad():
         for batch_idx, (phonemes, phonemes_lengths,
-                        f0,
+                        f0,energy,
                         phndur,
                         spec, spec_lengths, wav, wav_lengths, sid) in enumerate(eval_loader):
-            for shift in [0.8,1,1.5]:
+            for shift, energy_shift in [(0.8, 1), (1, 1), (1, 0.5),(1,1.4)]:
                 phonemes, phonemes_lengths = phonemes.cuda(0), phonemes_lengths.cuda(0)
                 spec, spec_lengths = spec.cuda(0), spec_lengths.cuda(0)
                 wav, wav_lengths = wav.cuda(0), wav_lengths.cuda(0)
@@ -291,7 +294,7 @@ def evaluate(hps, generator, eval_loader, writer_eval):
                 wav_lengths = wav_lengths[:1]
                 # break
                 y_hat, mask, xx, pred_f0 = generator.module.infer(phonemes, phonemes_lengths,
-                                                         max_len=1000, sid=sid,shift=shift)
+                                                         max_len=1000, sid=sid,shift=shift,energy_control=energy_shift)
                 y_hat_lengths = mask.sum([1, 2]).long() * hps.data.hop_length
 
                 mel = spec_to_mel_torch(
@@ -317,7 +320,7 @@ def evaluate(hps, generator, eval_loader, writer_eval):
                                                        pred_f0[0, :].detach().cpu().numpy()),
                 })
                 audio_dict.update({
-                    f"gen/audio-{batch_idx}-{shift}": y_hat[0, :, :y_hat_lengths[0]]
+                    f"gen/audio-{batch_idx}-{shift}-{energy_shift}": y_hat[0, :, :y_hat_lengths[0]]
                 })
 
                 image_dict.update({f"gt/mel-{batch_idx}": utils.plot_spectrogram_to_numpy(mel[0].cpu().numpy())})

@@ -89,13 +89,6 @@ def mel_spectrogram_torch(y, n_fft, num_mels, sampling_rate, hop_size, win_size,
         print('max value is ', torch.max(y))
 
     global mel_basis, hann_window
-    # print("mel_basis:", mel_basis)
-    # print("hann_window:", hann_window)
-    """
-    dtype_device:  torch.float16_cuda:0
-    fmax_dtype_device:  None_torch.float16_cuda:0
-    wnsize_dtype_device:  1024_torch.float16_cuda:0
-    """
     dtype_device = str(y.dtype) + '_' + str(y.device)
     fmax_dtype_device = str(fmax) + '_' + dtype_device
     wnsize_dtype_device = str(win_size) + '_' + dtype_device
@@ -105,17 +98,12 @@ def mel_spectrogram_torch(y, n_fft, num_mels, sampling_rate, hop_size, win_size,
     if wnsize_dtype_device not in hann_window:
         hann_window[wnsize_dtype_device] = torch.hann_window(win_size).to(dtype=y.dtype, device=y.device)
 
-    # print("y:",y)
-    # print("y size:", y.size())
     y = torch.nn.functional.pad(y.unsqueeze(1), (int((n_fft-hop_size)/2), int((n_fft-hop_size)/2)), mode='reflect')
-    # print("y size 2:", y.size())
     y = y.squeeze(1)
-    # print("y size 3: ", y.size())
 
     spec = torch.stft(y, n_fft, hop_length=hop_size, win_length=win_size, window=hann_window[wnsize_dtype_device],
                       center=center, pad_mode='reflect', normalized=False, onesided=True)
-    # print("spec:",spec)
-    # print("spec size:", spec.size())
+
     spec = torch.sqrt(spec.pow(2).sum(-1) + 1e-6)
 
     spec = torch.matmul(mel_basis[fmax_dtype_device], spec)

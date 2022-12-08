@@ -20,6 +20,7 @@ class Encoder(nn.Module):
     self.kernel_size = kernel_size
     self.p_dropout = p_dropout
     self.window_size = window_size
+
     self.drop = nn.Dropout(p_dropout)
     self.attn_layers = nn.ModuleList()
     self.norm_layers_1 = nn.ModuleList()

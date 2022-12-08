@@ -15,15 +15,15 @@ class Conv(nn.Module):
     """
 
     def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size=1,
-        stride=1,
-        padding=0,
-        dilation=1,
-        bias=True,
-        w_init="linear",
+            self,
+            in_channels,
+            out_channels,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            dilation=1,
+            bias=True,
+            w_init="linear",
     ):
         """
         :param in_channels: dimension of input
@@ -58,12 +58,12 @@ class Conv(nn.Module):
 class VariancePredictor(nn.Module):
     """Duration, Pitch and Energy Predictor"""
 
-    def __init__(self):
+    def __init__(self, input_size):
         super(VariancePredictor, self).__init__()
 
-        self.input_size = 192
+        self.input_size = input_size
         self.filter_size = 768
-        self.kernel = 3
+        self.kernel = 5
         self.conv_output_size = 768
         self.dropout = 0.5
 
@@ -71,7 +71,7 @@ class VariancePredictor(nn.Module):
             OrderedDict(
                 [
                     (
-                        "conv1d_1",
+                        "conv_1",
                         Conv(
                             self.input_size,
                             self.filter_size,
@@ -83,12 +83,12 @@ class VariancePredictor(nn.Module):
                     ("layer_norm_1", nn.LayerNorm(self.filter_size)),
                     ("dropout_1", nn.Dropout(self.dropout)),
                     (
-                        "conv1d_2",
+                        "conv_2",
                         Conv(
                             self.filter_size,
                             self.filter_size,
                             kernel_size=self.kernel,
-                            padding=1,
+                            padding=(self.kernel - 1) // 2,
                         ),
                     ),
                     ("relu_2", nn.ReLU()),
@@ -99,25 +99,60 @@ class VariancePredictor(nn.Module):
         )
 
         self.linear_layer = nn.Linear(self.conv_output_size, 1)
-        self.pitch_bins = nn.Parameter(
-            torch.linspace(2.1012, 9.6680, 120),
-            requires_grad=False,
-        )
-        self.pitch_embedding = nn.Embedding(
-            121, 192
-        )
+        self.proj = nn.Linear(1, self.input_size)
 
     def forward(self, encoder_output):
+        encoder_output = encoder_output.transpose(1, 2)
         # encoder_output size: [batch_size, max_len, hidden_channels]
         out = self.conv_layer(encoder_output)
         out = self.linear_layer(out)
-        prediction = out.squeeze(-1)
-        embedding = self.pitch_embedding(
-            torch.bucketize(prediction, self.pitch_bins)
+        return out.squeeze(-1)
+
+
+class EnergyPredictor(nn.Module):
+    def __init__(self, input_size, gin_channels, energy_min, energy_max, energy_mean, energy_std):
+        super(EnergyPredictor, self).__init__()
+        self.mean = energy_mean
+        self.std = energy_std
+        self.predictor = VariancePredictor(input_size)
+        self.energy_bins = nn.Parameter(
+            torch.linspace(energy_min, energy_max, 256 - 1),
+            requires_grad=False,
         )
+        self.energy_embedding = nn.Embedding(
+            256, input_size
+        )
+        if gin_channels != 0:
+            self.cond = nn.Conv1d(gin_channels, input_size, 1)
 
-        return prediction, embedding
+    def normalize(self, energy):
+        return (energy - self.mean) / self.std
 
+    def denormalize(self, norm_energy):
+        return norm_energy * self.std + self.mean
+
+    def forward(self, encoder_output, energy, g):
+        g = torch.detach(g)
+        encoder_output = encoder_output + self.cond(g)
+
+        pred_norm_energy = self.predictor(encoder_output)
+
+        norm_energy = self.normalize(energy)
+        embedding = self.energy_embedding(torch.bucketize(norm_energy, self.energy_bins)).transpose(1, 2)
+        l_energy = F.mse_loss(norm_energy, pred_norm_energy)
+        return pred_norm_energy,norm_energy, embedding,l_energy
+
+    def infer(self, encoder_output, g, control=None):
+        g = torch.detach(g)
+        encoder_output = encoder_output + self.cond(g)
+
+        pred_norm_energy = self.predictor(encoder_output)
+
+        if control is None:
+            control = 1
+        pred_energy = self.denormalize(pred_norm_energy) * control
+        embedding = self.energy_embedding(torch.bucketize(self.normalize(pred_energy), self.energy_bins)).transpose(1, 2)
+        return embedding
 
 class Swish(nn.Module):
     """
@@ -137,6 +172,7 @@ class Linear(nn.Module):
     Wrapper class of torch.nn.Linear
     Weight initialize by xavier initialization and bias initialize to zeros.
     """
+
     def __init__(self, in_features: int, out_features: int, bias: bool = True) -> None:
         super(Linear, self).__init__()
         self.linear = nn.Linear(in_features, out_features, bias=bias)
@@ -165,6 +201,7 @@ class GLU(nn.Module):
 
 class Transpose(nn.Module):
     """ Wrapper class of torch.transpose() for Sequential module. """
+
     def __init__(self, shape: tuple):
         super(Transpose, self).__init__()
         self.shape = shape
@@ -192,6 +229,7 @@ class DepthwiseConv1d(nn.Module):
     Returns: outputs
         - **outputs** (batch, out_channels, time): Tensor produces by depthwise 1-D convolution.
     """
+
     def __init__(
             self,
             in_channels: int,
@@ -235,6 +273,7 @@ class PointwiseConv1d(nn.Module):
     Returns: outputs
         - **outputs** (batch, out_channels, time): Tensor produces by pointwise 1-D convolution.
     """
+
     def __init__(
             self,
             in_channels: int,
@@ -274,6 +313,7 @@ class ConformerConvModule(nn.Module):
     Outputs: outputs
         outputs (batch, time, dim): Tensor produces by conformer convolution module.
     """
+
     def __init__(
             self,
             in_channels: int,
@@ -306,6 +346,7 @@ class ResidualConnectionModule(nn.Module):
     Residual Connection Module.
     outputs = (module(inputs) x module_factor + inputs x input_factor)
     """
+
     def __init__(self, module: nn.Module, module_factor: float = 1.0, input_factor: float = 1.0):
         super(ResidualConnectionModule, self).__init__()
         self.module = module
@@ -333,6 +374,7 @@ class FeedForwardModule(nn.Module):
     Outputs: outputs
         - **outputs** (batch, time, dim): Tensor produces by feed forward module.
     """
+
     def __init__(
             self,
             encoder_dim: int = 512,
@@ -363,6 +405,7 @@ class PositionalEncoding(nn.Module):
         PE_(pos, 2i)    =  sin(pos / power(10000, 2i / d_model))
         PE_(pos, 2i+1)  =  cos(pos / power(10000, 2i / d_model))
     """
+
     def __init__(self, d_model: int = 512, max_len: int = 10000) -> None:
         super(PositionalEncoding, self).__init__()
         pe = torch.zeros(max_len, d_model, requires_grad=False)
@@ -397,6 +440,7 @@ class RelativeMultiHeadAttention(nn.Module):
     Returns:
         - **outputs**: Tensor produces by relative multi head attention module.
     """
+
     def __init__(
             self,
             d_model: int = 512,
@@ -487,6 +531,7 @@ class MultiHeadedSelfAttentionModule(nn.Module):
     Returns:
         - **outputs** (batch, time, dim): Tensor produces by relative multi headed self attention module.
     """
+
     def __init__(self, d_model: int, num_heads: int, dropout_p: float = 0.1):
         super(MultiHeadedSelfAttentionModule, self).__init__()
         self.positional_encoding = PositionalEncoding(d_model)
@@ -529,6 +574,7 @@ class ConformerBlock(nn.Module):
     Returns: outputs
         - **outputs** (batch, time, dim): Tensor produces by conformer block.
     """
+
     def __init__(
             self,
             encoder_dim: int,

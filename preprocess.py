@@ -11,7 +11,7 @@ if __name__ == '__main__':
 
   args = parser.parse_args()
     
-  # 遍历filelist文件，并且将其中每一行的text转换成clean_text，也就是将英文转换为对应的国际音标
+
   for filelist in args.filelists:
     print("START:", filelist)
     filepaths_and_text = load_filepaths_and_text(filelist)

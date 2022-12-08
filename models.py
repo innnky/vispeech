@@ -1,11 +1,8 @@
-# -*- coding: utf-8 -*-
 import copy
 import math
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torch import Tensor
-import numpy as np
 
 import commons
 import modules
@@ -13,56 +10,9 @@ import attentions
 
 from torch.nn import Conv1d, ConvTranspose1d, AvgPool1d, Conv2d
 from torch.nn.utils import weight_norm, remove_weight_norm, spectral_norm
-
-import utils
 from commons import init_weights, get_padding
-from frame_prior_network import ConformerBlock, VariancePredictor, ResidualConnectionModule
-from text.symbols import symbols
-
-
-class LengthRegulator(nn.Module):
-    """Length Regulator"""
-
-    def __init__(self, hoplen, sr):
-        super(LengthRegulator, self).__init__()
-        self.hoplen = hoplen
-        self.sr = sr
-
-    def LR(self, x, duration, x_lengths):
-        output = list()
-        mel_len = list()
-        x = torch.transpose(x, 1, -1)
-        frame_lengths = list()
-
-        for batch, expand_target in zip(x, duration):
-            expanded = self.expand(batch, expand_target)
-            output.append(expanded)
-            frame_lengths.append(expanded.shape[0])
-
-        max_len = max(frame_lengths)
-        output_padded = torch.FloatTensor(x.size(0), max_len, x.size(2))
-        output_padded.zero_()
-        for i in range(output_padded.size(0)):
-            output_padded[i, :frame_lengths[i], :] = output[i]
-        output_padded = torch.transpose(output_padded, 1, -1)
-
-        return output_padded, torch.LongTensor(frame_lengths)
-
-    def expand(self, batch, predicted):
-        out = list()
-        predicted = predicted.squeeze()
-        for i, vec in enumerate(batch):
-            expand_size = predicted[i].item()
-            vec_expand = vec.expand(max(int(expand_size), 0), -1)
-            out.append(vec_expand)
-
-        out = torch.cat(out, 0)
-        return out
-
-    def forward(self, x, duration, x_lengths):
-
-        output, x_lengths = self.LR(x, duration, x_lengths)
-        return output, x_lengths
+import utils
+from frame_prior_network import VariancePredictor, EnergyPredictor
 
 
 class StochasticDurationPredictor(nn.Module):
@@ -150,6 +100,7 @@ class DurationPredictor(nn.Module):
     def __init__(self, in_channels, filter_channels, kernel_size, p_dropout, gin_channels=0):
         super().__init__()
 
+        self.in_channels = in_channels
         self.filter_channels = filter_channels
         self.kernel_size = kernel_size
         self.p_dropout = p_dropout
@@ -182,7 +133,7 @@ class DurationPredictor(nn.Module):
         return x * x_mask
 
 
-class PhonemesPredictor(nn.Module):
+class TextEncoder(nn.Module):
     def __init__(self,
                  n_vocab,
                  out_channels,
@@ -203,108 +154,6 @@ class PhonemesPredictor(nn.Module):
         self.p_dropout = p_dropout
 
         self.emb = nn.Embedding(n_vocab, hidden_channels)
-
-        self.phonemes_predictor = attentions.Encoder(
-            hidden_channels,
-            filter_channels,
-            n_heads,
-            2,
-            kernel_size,
-            p_dropout)
-        self.linear1 = nn.Linear(hidden_channels, 62)
-
-    def forward(self, x, x_mask):
-        phonemes_embedding = self.phonemes_predictor(x * x_mask, x_mask)
-        x1 = self.linear1(phonemes_embedding.transpose(1, 2))
-        x1 = x1.log_softmax(2)
-        return x1.transpose(0, 1)
-
-
-class PitchPredictor(nn.Module):
-    def __init__(self,
-                 mean,
-                 std,
-                 n_vocab,
-                 gin_channels,
-                 out_channels,
-                 hidden_channels,
-                 filter_channels,
-                 n_heads,
-                 n_layers,
-                 kernel_size,
-                 p_dropout):
-        super().__init__()
-        self.n_vocab = n_vocab  # 音素的个数，中文和英文不同
-        self.out_channels = out_channels
-        self.hidden_channels = hidden_channels
-        self.filter_channels = filter_channels
-        self.n_heads = n_heads
-        self.n_layers = n_layers
-        self.kernel_size = kernel_size
-        self.p_dropout = p_dropout
-        self.mean = mean
-        self.std = std
-        self.emb = nn.Embedding(256, hidden_channels)
-
-        self.pitch_net = attentions.Encoder(
-            hidden_channels,
-            filter_channels,
-            n_heads,
-            n_layers,
-            kernel_size,
-            p_dropout)
-        self.proj_f0 = nn.Conv1d(hidden_channels, 1, 1)
-        if gin_channels != 0:
-            self.cond = nn.Conv1d(gin_channels, hidden_channels, 1)
-
-    def normalize(self, f0):
-        return (f0-self.mean)/self.std
-
-    def denormalize(self, norm_f0):
-        return norm_f0*self.std+self.mean
-
-    def forward(self, x, x_mask, f0=None, shift=None, g=None):
-        x = torch.detach(x)
-        if g is not None:
-            g = torch.detach(g)
-            x = x + self.cond(g)
-        x = self.pitch_net(x * x_mask, x_mask)
-        x = x * x_mask
-        pred_norm_f0 = self.proj_f0(x).squeeze(1)
-        pred_f0 = self.denormalize(pred_norm_f0)
-        if f0 is not None:
-            embedding = self.emb(utils.f0_to_coarse(f0))
-        else:
-            shift = 1 if shift is None else shift
-            embedding = self.emb(
-                utils.f0_to_coarse((pred_f0*shift))
-            )
-
-        return pred_norm_f0, pred_f0, embedding.transpose(1, 2)
-
-
-class TextEncoder(nn.Module):
-    def __init__(self,
-                 n_vocab,
-                 out_channels,
-                 hidden_channels,
-                 filter_channels,
-                 n_heads,
-                 n_layers,
-                 kernel_size,
-                 p_dropout):
-        super().__init__()
-        self.n_vocab = n_vocab  # 音素的个数，中文和英文不同
-        self.out_channels = out_channels
-        self.hidden_channels = hidden_channels
-        self.filter_channels = filter_channels
-        self.n_heads = n_heads
-        self.n_layers = n_layers
-        self.kernel_size = kernel_size
-        self.p_dropout = p_dropout
-
-        self.emb = nn.Embedding(n_vocab, hidden_channels)
-
         nn.init.normal_(self.emb.weight, 0.0, hidden_channels ** -0.5)
 
         self.encoder = attentions.Encoder(
@@ -320,8 +169,8 @@ class TextEncoder(nn.Module):
         x = self.emb(x) * math.sqrt(self.hidden_channels)  # [b, t, h]
         x = torch.transpose(x, 1, -1)  # [b, h, t]
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x.size(2)), 1).to(x.dtype)
-        x = self.encoder(x * x_mask, x_mask)
 
+        x = self.encoder(x * x_mask, x_mask)
         return x, x_mask
 
 
@@ -538,45 +387,49 @@ class MultiPeriodDiscriminator(torch.nn.Module):
         return y_d_rs, y_d_gs, fmap_rs, fmap_gs
 
 
-class Projection(nn.Module):
-    def __init__(self,
-                 hidden_channels,
-                 out_channels):
-        super().__init__()
-        self.hidden_channels = hidden_channels
-        self.out_channels = out_channels
-        self.proj = nn.Conv1d(hidden_channels, out_channels * 2, 1)
+class LengthRegulator(nn.Module):
+    """Length Regulator"""
 
-    def forward(self, x, x_mask):
-        stats = self.proj(x) * x_mask
-        m_p, logs_p = torch.split(stats, self.out_channels, dim=1)
-        return m_p, logs_p
+    def __init__(self, hoplen, sr):
+        super(LengthRegulator, self).__init__()
+        self.hoplen = hoplen
+        self.sr = sr
 
+    def LR(self, x, duration, x_lengths):
+        output = list()
+        mel_len = list()
+        x = torch.transpose(x, 1, -1)
+        frame_lengths = list()
 
-class FramePriorBlock(nn.Module):
-    def __init__(self, in_channels, filter_channels, kernel_size, p_dropout, gin_channels=0):
-        super().__init__()
-        self.in_channels = in_channels
-        self.filter_channels = filter_channels
-        self.kernel_size = kernel_size
-        self.p_dropout = p_dropout
-        self.gin_channels = gin_channels
+        for batch, expand_target in zip(x, duration):
+            expanded = self.expand(batch, expand_target)
+            output.append(expanded)
+            frame_lengths.append(expanded.shape[0])
 
-        self.sequential = nn.Sequential(
-            ResidualConnectionModule(
-                module=nn.Conv1d(
-                    in_channels,
-                    filter_channels,
-                    kernel_size,
-                    padding=kernel_size // 2)
-            ),
-            nn.ReLU(),
-            modules.LayerNorm(filter_channels),
-            nn.Dropout(p_dropout)
-        )
+        max_len = max(frame_lengths)
+        output_padded = torch.FloatTensor(x.size(0), max_len, x.size(2))
+        output_padded.zero_()
+        for i in range(output_padded.size(0)):
+            output_padded[i, :frame_lengths[i], :] = output[i]
+        output_padded = torch.transpose(output_padded, 1, -1)
 
-    def forward(self, inputs: Tensor) -> Tensor:
-        return self.sequential(inputs)
+        return output_padded, torch.LongTensor(frame_lengths)
+
+    def expand(self, batch, predicted):
+        out = list()
+        predicted = predicted.squeeze()
+        for i, vec in enumerate(batch):
+            expand_size = predicted[i].item()
+            vec_expand = vec.expand(max(int(expand_size), 0), -1)
+            out.append(vec_expand)
+
+        out = torch.cat(out, 0)
+        return out
+
+    def forward(self, x, duration, x_lengths):
+
+        output, x_lengths = self.LR(x, duration, x_lengths)
+        return output, x_lengths
 
 
 class FramePriorNet(nn.Module):
@@ -617,10 +470,88 @@ class FramePriorNet(nn.Module):
         return x
 
 
+class PitchPredictor(nn.Module):
+    def __init__(self,
+                 mean,
+                 std,
+                 n_vocab,
+                 gin_channels,
+                 out_channels,
+                 hidden_channels,
+                 filter_channels,
+                 n_heads,
+                 n_layers,
+                 kernel_size,
+                 p_dropout):
+        super().__init__()
+        self.n_vocab = n_vocab  # 音素的个数，中文和英文不同
+        self.out_channels = out_channels
+        self.hidden_channels = hidden_channels
+        self.filter_channels = filter_channels
+        self.n_heads = n_heads
+        self.n_layers = n_layers
+        self.kernel_size = kernel_size
+        self.p_dropout = p_dropout
+        self.mean = mean
+        self.std = std
+        self.emb = nn.Embedding(256, hidden_channels)
+
+        self.pitch_net = attentions.Encoder(
+            hidden_channels,
+            filter_channels,
+            n_heads,
+            n_layers,
+            kernel_size,
+            p_dropout)
+        self.proj_f0 = nn.Conv1d(hidden_channels, 1, 1)
+        if gin_channels != 0:
+            self.cond = nn.Conv1d(gin_channels, hidden_channels, 1)
+
+    def normalize(self, f0):
+        return (f0 - self.mean) / self.std
+
+    def denormalize(self, norm_f0):
+        return norm_f0 * self.std + self.mean
+
+    def forward(self, x, x_mask, f0=None, shift=None, g=None):
+        x = torch.detach(x)
+        if g is not None:
+            g = torch.detach(g)
+            x = x + self.cond(g)
+
+        x = self.pitch_net(x * x_mask, x_mask)
+        x = x * x_mask
+        pred_norm_f0 = self.proj_f0(x).squeeze(1)
+        pred_f0 = self.denormalize(pred_norm_f0)
+        if f0 is not None:
+            embedding = self.emb(utils.f0_to_coarse(f0))
+        else:
+            shift = 1 if shift is None else shift
+            embedding = self.emb(
+                utils.f0_to_coarse((pred_f0 * shift))
+            )
+        return pred_norm_f0, pred_f0, embedding.transpose(1, 2)
+
+
+class Projection(nn.Module):
+    def __init__(self,
+                 hidden_channels,
+                 out_channels):
+        super().__init__()
+        self.hidden_channels = hidden_channels
+        self.out_channels = out_channels
+        self.proj = nn.Conv1d(hidden_channels, out_channels * 2, 1)
+
+    def forward(self, x, x_mask):
+        stats = self.proj(x) * x_mask
+        m_p, logs_p = torch.split(stats, self.out_channels, dim=1)
+        return m_p, logs_p
+
+
 class SynthesizerTrn(nn.Module):
     """
-    Synthesizer for Training
-    """
+  Synthesizer for Training
+  """
 
     def __init__(self,
                  n_vocab,
@@ -645,7 +576,11 @@ class SynthesizerTrn(nn.Module):
                  gin_channels=0,
                  use_sdp=False,
                  f0_mean=171.21,
-                 f0_std = 128.9,
+                 f0_std=128.9,
+                 energy_min=-1.6306,
+                 energy_max=10,
+                 energy_mean=59.412674114165,
+                 energy_std=36.625710,
                  **kwargs):
 
         super().__init__()
@@ -667,10 +602,9 @@ class SynthesizerTrn(nn.Module):
         self.segment_size = segment_size
         self.n_speakers = n_speakers
         self.gin_channels = gin_channels
-        self.hop_length = hop_length
-        self.sampling_rate = sampling_rate
 
         self.use_sdp = use_sdp
+
         self.enc_p = TextEncoder(n_vocab,
                                  inter_channels,
                                  hidden_channels,
@@ -684,19 +618,26 @@ class SynthesizerTrn(nn.Module):
         self.enc_q = PosteriorEncoder(spec_channels, inter_channels, hidden_channels, 5, 1, 16,
                                       gin_channels=gin_channels)
         self.flow = ResidualCouplingBlock(inter_channels, hidden_channels, 5, 1, 4, gin_channels=gin_channels)
+
         self.dp = DurationPredictor(hidden_channels, 256, 3, 0.5, gin_channels=gin_channels)
-        self.project = Projection(hidden_channels, inter_channels)
+
         self.lr = LengthRegulator(hop_length, sampling_rate)
         self.frame_prior_net = FramePriorNet(n_vocab, inter_channels, hidden_channels, filter_channels, n_heads,
                                              n_layers, kernel_size, p_dropout)
-        self.pitch_net = PitchPredictor(f0_mean, f0_std, n_vocab, gin_channels, inter_channels, hidden_channels, filter_channels,
+        self.pitch_net = PitchPredictor(f0_mean, f0_std, n_vocab, gin_channels, inter_channels, hidden_channels,
+                                        filter_channels,
                                         n_heads,
                                         n_layers,
                                         kernel_size, p_dropout)
+        self.energy_predictor = EnergyPredictor(hidden_channels, gin_channels, energy_min, energy_max, energy_mean,
+                                                energy_std)
+        self.project = Projection(hidden_channels, inter_channels)
+
         if n_speakers > 1:
             self.emb_g = nn.Embedding(n_speakers, gin_channels)
 
-    def forward(self, phonemes, phonemes_lengths, f0, phndur, spec, spec_lengths, sid=None):
+    def forward(self, phonemes, phonemes_lengths, f0, energy, phndur, spec, spec_lengths, sid=None):
+
         if self.n_speakers > 0:
             g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
         else:
@@ -706,23 +647,27 @@ class SynthesizerTrn(nn.Module):
         x, x_mask = self.enc_p(phonemes, phonemes_lengths)
 
         # 时长预测
-        logw_ = torch.log(phndur.detach().float()+1).unsqueeze(1) * x_mask
+        logw_ = torch.log(phndur.detach().float() + 1).unsqueeze(1) * x_mask
         logw = self.dp(x, x_mask, g=g)
         l_loss = torch.sum((logw - logw_) ** 2, [1, 2])
         x_mask_sum = torch.sum(x_mask)
         l_length = l_loss / x_mask_sum
 
         # f0预测
-        pred_norm_f0,pred_f0, pitch_embedding = self.pitch_net(x, x_mask, f0=f0,g=g)
+        pred_norm_f0, pred_f0, pitch_embedding = self.pitch_net(x, x_mask, f0=f0, g=g)
         l_pitch = F.mse_loss(pred_norm_f0, self.pitch_net.normalize(f0))
         x += pitch_embedding
+
+        # energy预测
+        pred_norm_energy, norm_energy, embedding, l_energy = self.energy_predictor(x, energy, g)
+        x += embedding
 
         # 音素级别转换成帧级
         x_frame, x_lengths = self.lr(x, phndur, phonemes_lengths)
 
         # 补零对齐spec和帧级别输入
-        spec_padded = torch.zeros(spec.shape[0],spec.shape[1],x_frame.shape[-1]).float().to(spec.device)
-        spec_padded[:,:,:spec.shape[-1]]=spec
+        spec_padded = torch.zeros(spec.shape[0], spec.shape[1], x_frame.shape[-1]).float().to(spec.device)
+        spec_padded[:, :, :spec.shape[-1]] = spec
         spec = spec_padded.detach()
 
         x_frame = x_frame.to(x.device)
@@ -751,11 +696,11 @@ class SynthesizerTrn(nn.Module):
 
         z_slice, ids_slice = commons.rand_slice_segments(z, spec_lengths, self.segment_size)
         o = self.dec(z_slice, g=g)
-        return o, l_length, l_pitch, ids_slice, x_mask, y_mask, (
-        z, z_p, m_p, logs_p, m_q, logs_q), pred_f0
+        return o, l_length, l_pitch, l_energy, ids_slice, x_mask, y_mask, (
+            z, z_p, m_p, logs_p, m_q, logs_q), pred_f0, pred_norm_energy, norm_energy
 
     def infer(self, phonemes, phonemes_lengths,
-              sid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None, shift=None):
+              sid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None, shift=None, energy_control=None, pitch_control=None):
         if self.n_speakers > 0:
             g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
         else:
@@ -763,12 +708,19 @@ class SynthesizerTrn(nn.Module):
         x, x_mask = self.enc_p(phonemes, phonemes_lengths)
         # 时长预测
         logw = self.dp(x, x_mask, g=g)
-        w = (torch.exp(logw) * x_mask -1) * length_scale
+        w = (torch.exp(logw) * x_mask - 1) * length_scale
         w = torch.ceil(w)
+        if pitch_control is None:
+            # f0预测
+            pred_norm_f0, pred_f0, pitch_embedding = self.pitch_net(x, x_mask, shift=shift, g=g)
 
-        # f0预测
-        pred_norm_f0,pred_f0, pitch_embedding = self.pitch_net(x, x_mask,shift=shift, g=g)
+        else:
+            pred_norm_f0, pred_f0, pitch_embedding = self.pitch_net(x, x_mask, f0=pitch_control, g=g)
+            pred_f0 = pitch_control
         x += pitch_embedding
+        # energy预测
+        energy_emb = self.energy_predictor.infer(x, g, energy_control)
+        x += energy_emb
 
         # 扩帧
         x_frame, x_lengths = self.lr(x, w, phonemes_lengths)
@@ -806,4 +758,3 @@ class SynthesizerTrn(nn.Module):
         z_hat = self.flow(z_p, y_mask, g=g_tgt, reverse=True)
         o_hat = self.dec(z_hat * y_mask, g=g_tgt)
         return o_hat, y_mask, (z, z_p, z_hat)
-
