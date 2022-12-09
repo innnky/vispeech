@@ -13,6 +13,7 @@ from torch.nn.utils import weight_norm, remove_weight_norm, spectral_norm
 from commons import init_weights, get_padding
 import utils
 from frame_prior_network import VariancePredictor, EnergyPredictor, FramePitchPredictor
+from vdecoder.hifigan.models import Generator
 
 
 class StochasticDurationPredictor(nn.Module):
@@ -613,8 +614,18 @@ class SynthesizerTrn(nn.Module):
                                  n_layers,
                                  kernel_size,
                                  p_dropout)
-        self.dec = Generator(inter_channels, resblock, resblock_kernel_sizes, resblock_dilation_sizes, upsample_rates,
-                             upsample_initial_channel, upsample_kernel_sizes, gin_channels=gin_channels)
+        hps = {
+            "sampling_rate": 44100,
+            "inter_channels": 192,
+            "resblock": "1",
+            "resblock_kernel_sizes": [3,7,11],
+            "resblock_dilation_sizes": [[1,3,5], [1,3,5], [1,3,5]],
+            "upsample_rates": [8,8,4,2],
+            "upsample_initial_channel": 512,
+            "upsample_kernel_sizes": [16,16,4,4],
+            "gin_channels": 256,
+        }
+        self.dec = Generator(h=hps)
         self.enc_q = PosteriorEncoder(spec_channels, inter_channels, hidden_channels, 5, 1, 16,
                                       gin_channels=gin_channels)
         self.flow = ResidualCouplingBlock(inter_channels, hidden_channels, 5, 1, 4, gin_channels=gin_channels)
@@ -701,8 +712,8 @@ class SynthesizerTrn(nn.Module):
         z, m_q, logs_q, y_mask = self.enc_q(spec, spec_lengths, g=g)
         z_p = self.flow(z, y_mask, g=g)
 
-        z_slice, ids_slice = commons.rand_slice_segments(z, spec_lengths, self.segment_size)
-        o = self.dec(z_slice, g=g)
+        z_slice, pitch_slice, ids_slice = commons.rand_slice_segments_with_pitch(z,frame_f0, spec_lengths, self.segment_size)
+        o = self.dec(z_slice, g=g, f0=pitch_slice)
         return o, l_length, l_pitch, l_energy, ids_slice, x_mask, y_mask, (
             z, z_p, m_p, logs_p, m_q, logs_q), frame_pred_norm_pitch, frame_norm_pitch, pred_norm_energy, norm_energy
 
@@ -736,7 +747,7 @@ class SynthesizerTrn(nn.Module):
         x_mask = x_mask.to(x.device)
 
         # 帧级f0预测
-        frame_emb = self.frame_pitch_predictor.infer(x_frame, g=g)
+        frame_emb, pred_pitch = self.frame_pitch_predictor.infer(x_frame, g=g)
         x_frame += frame_emb
 
 
@@ -757,7 +768,7 @@ class SynthesizerTrn(nn.Module):
         m_p, logs_p = self.project(x_frame, x_mask)
         z_p = m_p + torch.randn_like(m_p) * torch.exp(logs_p) * noise_scale
         z = self.flow(z_p, x_mask, g=g, reverse=True)
-        o = self.dec((z * x_mask)[:, :, :max_len], g=g)
+        o = self.dec((z * x_mask)[:, :, :max_len], g=g, f0=pred_pitch)
 
         return o, x_mask, (z, z_p, m_p, logs_p), pred_f0
 
