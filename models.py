@@ -12,7 +12,7 @@ from torch.nn import Conv1d, ConvTranspose1d, AvgPool1d, Conv2d
 from torch.nn.utils import weight_norm, remove_weight_norm, spectral_norm
 from commons import init_weights, get_padding
 import utils
-from frame_prior_network import VariancePredictor, EnergyPredictor
+from frame_prior_network import VariancePredictor, EnergyPredictor, FramePitchPredictor
 
 
 class StochasticDurationPredictor(nn.Module):
@@ -631,12 +631,13 @@ class SynthesizerTrn(nn.Module):
                                         kernel_size, p_dropout)
         self.energy_predictor = EnergyPredictor(hidden_channels, gin_channels, energy_min, energy_max, energy_mean,
                                                 energy_std)
+        self.frame_pitch_predictor = FramePitchPredictor(hidden_channels, gin_channels,pitch_mean=f0_mean, pitch_std=f0_std)
         self.project = Projection(hidden_channels, inter_channels)
 
         if n_speakers > 1:
             self.emb_g = nn.Embedding(n_speakers, gin_channels)
 
-    def forward(self, phonemes, phonemes_lengths, f0, energy, phndur, spec, spec_lengths, sid=None):
+    def forward(self, phonemes, phonemes_lengths, f0,frame_f0, energy, phndur, spec, spec_lengths, sid=None):
 
         if self.n_speakers > 0:
             g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
@@ -655,9 +656,8 @@ class SynthesizerTrn(nn.Module):
 
         # f0预测
         pred_norm_f0, pred_f0, pitch_embedding = self.pitch_net(x, x_mask, f0=f0, g=g)
-        l_pitch = F.mse_loss(pred_norm_f0, self.pitch_net.normalize(f0))
+        l_pitch_ph = F.mse_loss(pred_norm_f0, self.pitch_net.normalize(f0))
         x += pitch_embedding
-
         # energy预测
         pred_norm_energy, norm_energy, embedding, l_energy = self.energy_predictor(x, energy, g)
         x += embedding
@@ -669,10 +669,17 @@ class SynthesizerTrn(nn.Module):
         spec_padded = torch.zeros(spec.shape[0], spec.shape[1], x_frame.shape[-1]).float().to(spec.device)
         spec_padded[:, :, :spec.shape[-1]] = spec
         spec = spec_padded.detach()
-
         x_frame = x_frame.to(x.device)
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x_frame.size(2)), 1).to(x.dtype)  # 更新x_mask矩阵
         x_mask = x_mask.to(x.device)
+
+        # 帧级f0预测
+        frame_f0 = frame_f0[:, :x_frame.shape[-1]]
+        frame_pred_norm_pitch, frame_norm_pitch, frame_pitch_embedding, l_pitch_frame = self.frame_pitch_predictor(x_frame, frame_f0=frame_f0, g=g)
+        x_frame += frame_pitch_embedding
+        l_pitch = l_pitch_ph + l_pitch_frame
+
+
         max_len = x_frame.size(2)
         d_model = x_frame.size(1)
         batch_size = x_frame.size(0)
@@ -697,7 +704,7 @@ class SynthesizerTrn(nn.Module):
         z_slice, ids_slice = commons.rand_slice_segments(z, spec_lengths, self.segment_size)
         o = self.dec(z_slice, g=g)
         return o, l_length, l_pitch, l_energy, ids_slice, x_mask, y_mask, (
-            z, z_p, m_p, logs_p, m_q, logs_q), pred_f0, pred_norm_energy, norm_energy
+            z, z_p, m_p, logs_p, m_q, logs_q), frame_pred_norm_pitch, frame_norm_pitch, pred_norm_energy, norm_energy
 
     def infer(self, phonemes, phonemes_lengths,
               sid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None, shift=None, energy_control=None, pitch_control=None):
@@ -727,6 +734,11 @@ class SynthesizerTrn(nn.Module):
         x_frame = x_frame.to(x.device)
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x_frame.size(2)), 1).to(x.dtype)
         x_mask = x_mask.to(x.device)
+
+        # 帧级f0预测
+        frame_emb = self.frame_pitch_predictor.infer(x_frame, g=g)
+        x_frame += frame_emb
+
 
         max_len = x_frame.size(2)
         d_model = x_frame.size(1)
