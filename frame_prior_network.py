@@ -134,6 +134,7 @@ class EnergyPredictor(nn.Module):
         return norm_energy * self.std + self.mean
 
     def forward(self, encoder_output, energy, g):
+        encoder_output = torch.detach(encoder_output)
         g = torch.detach(g)
         encoder_output = encoder_output + self.cond(g)
 
@@ -176,6 +177,7 @@ class FramePitchPredictor(nn.Module):
         return norm_pitch * self.std + self.mean
 
     def forward(self, encoder_output, frame_f0, g):
+        encoder_output = torch.detach(encoder_output)
         g = torch.detach(g)
         encoder_output = encoder_output + self.cond(g)
 

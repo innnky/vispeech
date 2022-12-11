@@ -154,8 +154,8 @@ class TextEncoder(nn.Module):
         self.kernel_size = kernel_size
         self.p_dropout = p_dropout
 
-        self.emb = nn.Embedding(n_vocab, hidden_channels)
-        nn.init.normal_(self.emb.weight, 0.0, hidden_channels ** -0.5)
+        self.symbol_emb = nn.Embedding(n_vocab, hidden_channels)
+        nn.init.normal_(self.symbol_emb.weight, 0.0, hidden_channels ** -0.5)
 
         self.encoder = attentions.Encoder(
             hidden_channels,
@@ -167,7 +167,7 @@ class TextEncoder(nn.Module):
         self.proj = nn.Conv1d(hidden_channels, out_channels * 2, 1)
 
     def forward(self, x, x_lengths):
-        x = self.emb(x) * math.sqrt(self.hidden_channels)  # [b, t, h]
+        x = self.symbol_emb(x) * math.sqrt(self.hidden_channels)  # [b, t, h]
         x = torch.transpose(x, 1, -1)  # [b, h, t]
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x.size(2)), 1).to(x.dtype)
 
@@ -242,60 +242,6 @@ class PosteriorEncoder(nn.Module):
         return z, m, logs, x_mask
 
 
-class Generator(torch.nn.Module):
-    def __init__(self, initial_channel, resblock, resblock_kernel_sizes, resblock_dilation_sizes, upsample_rates,
-                 upsample_initial_channel, upsample_kernel_sizes, gin_channels=0):
-        super(Generator, self).__init__()
-        self.num_kernels = len(resblock_kernel_sizes)
-        self.num_upsamples = len(upsample_rates)
-        self.conv_pre = Conv1d(initial_channel, upsample_initial_channel, 7, 1, padding=3)
-        resblock = modules.ResBlock1 if resblock == '1' else modules.ResBlock2
-
-        self.ups = nn.ModuleList()
-        for i, (u, k) in enumerate(zip(upsample_rates, upsample_kernel_sizes)):
-            self.ups.append(weight_norm(
-                ConvTranspose1d(upsample_initial_channel // (2 ** i), upsample_initial_channel // (2 ** (i + 1)),
-                                k, u, padding=(k - u) // 2)))
-
-        self.resblocks = nn.ModuleList()
-        for i in range(len(self.ups)):
-            ch = upsample_initial_channel // (2 ** (i + 1))
-            for j, (k, d) in enumerate(zip(resblock_kernel_sizes, resblock_dilation_sizes)):
-                self.resblocks.append(resblock(ch, k, d))
-
-        self.conv_post = Conv1d(ch, 1, 7, 1, padding=3, bias=False)
-        self.ups.apply(init_weights)
-
-        if gin_channels != 0:
-            self.cond = nn.Conv1d(gin_channels, upsample_initial_channel, 1)
-
-    def forward(self, x, g=None):
-        x = self.conv_pre(x)
-        if g is not None:
-            x = x + self.cond(g)
-
-        for i in range(self.num_upsamples):
-            x = F.leaky_relu(x, modules.LRELU_SLOPE)
-            x = self.ups[i](x)
-            xs = None
-            for j in range(self.num_kernels):
-                if xs is None:
-                    xs = self.resblocks[i * self.num_kernels + j](x)
-                else:
-                    xs += self.resblocks[i * self.num_kernels + j](x)
-            x = xs / self.num_kernels
-        x = F.leaky_relu(x)
-        x = self.conv_post(x)
-        x = torch.tanh(x)
-
-        return x
-
-    def remove_weight_norm(self):
-        print('Removing weight norm...')
-        for l in self.ups:
-            remove_weight_norm(l)
-        for l in self.resblocks:
-            l.remove_weight_norm()
 
 
 class DiscriminatorP(torch.nn.Module):
@@ -625,7 +571,7 @@ class SynthesizerTrn(nn.Module):
             "upsample_kernel_sizes": [16,16,4,4],
             "gin_channels": 256,
         }
-        self.dec = Generator(h=hps)
+        self.nsf_dec = Generator(h=hps)
         self.enc_q = PosteriorEncoder(spec_channels, inter_channels, hidden_channels, 5, 1, 16,
                                       gin_channels=gin_channels)
         self.flow = ResidualCouplingBlock(inter_channels, hidden_channels, 5, 1, 4, gin_channels=gin_channels)
@@ -713,7 +659,7 @@ class SynthesizerTrn(nn.Module):
         z_p = self.flow(z, y_mask, g=g)
 
         z_slice, pitch_slice, ids_slice = commons.rand_slice_segments_with_pitch(z,frame_f0, spec_lengths, self.segment_size)
-        o = self.dec(z_slice, g=g, f0=pitch_slice)
+        o = self.nsf_dec(z_slice, g=g, f0=pitch_slice)
         return o, l_length, l_pitch, l_energy, ids_slice, x_mask, y_mask, (
             z, z_p, m_p, logs_p, m_q, logs_q), frame_pred_norm_pitch, frame_norm_pitch, pred_norm_energy, norm_energy
 
@@ -768,16 +714,16 @@ class SynthesizerTrn(nn.Module):
         m_p, logs_p = self.project(x_frame, x_mask)
         z_p = m_p + torch.randn_like(m_p) * torch.exp(logs_p) * noise_scale
         z = self.flow(z_p, x_mask, g=g, reverse=True)
-        o = self.dec((z * x_mask)[:, :, :max_len], g=g, f0=pred_pitch)
+        o = self.nsf_dec((z * x_mask)[:, :, :max_len], g=g, f0=pred_pitch)
 
         return o, x_mask, (z, z_p, m_p, logs_p), pred_f0
-
-    def voice_conversion(self, y, y_lengths, sid_src, sid_tgt):
-        assert self.n_speakers > 0, "n_speakers have to be larger than 0."
-        g_src = self.emb_g(sid_src).unsqueeze(-1)
-        g_tgt = self.emb_g(sid_tgt).unsqueeze(-1)
-        z, m_q, logs_q, y_mask = self.enc_q(y, y_lengths, g=g_src)
-        z_p = self.flow(z, y_mask, g=g_src)
-        z_hat = self.flow(z_p, y_mask, g=g_tgt, reverse=True)
-        o_hat = self.dec(z_hat * y_mask, g=g_tgt)
-        return o_hat, y_mask, (z, z_p, z_hat)
+    # 
+    # def voice_conversion(self, y, y_lengths, sid_src, sid_tgt):
+    #     assert self.n_speakers > 0, "n_speakers have to be larger than 0."
+    #     g_src = self.emb_g(sid_src).unsqueeze(-1)
+    #     g_tgt = self.emb_g(sid_tgt).unsqueeze(-1)
+    #     z, m_q, logs_q, y_mask = self.enc_q(y, y_lengths, g=g_src)
+    #     z_p = self.flow(z, y_mask, g=g_src)
+    #     z_hat = self.flow(z_p, y_mask, g=g_tgt, reverse=True)
+    #     o_hat = self.nsf_dec(z_hat * y_mask, g=g_tgt)
+    #     return o_hat, y_mask, (z, z_p, z_hat)
