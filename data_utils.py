@@ -77,7 +77,7 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         energy = torch.FloatTensor([float(i) for i in energy.strip().split(" ")])
         load = np.load(wav_path + ".f0.npy")
 
-        frame_f0 = torch.FloatTensor(resize2d(load, spec.shape[-1]))
+        frame_f0 = torch.FloatTensor(resize2d(load, sum(phn_dur)))
 
         assert abs(frame_f0.shape[-1] - sum(phn_dur))<2, wav_path
         assert energy.shape == f0.shape

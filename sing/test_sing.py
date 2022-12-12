@@ -156,7 +156,7 @@ net_g = SynthesizerTrn(
 
 _ = net_g.eval()
 
-_ = utils.load_checkpoint("/Volumes/Extend/下载/G_69600.pth", net_g, None)
+_ = utils.load_checkpoint("/Volumes/Extend/下载/G_27600.pth", net_g, None)
 
 
 text_norm = torch.LongTensor(phseq)

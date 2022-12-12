@@ -13,7 +13,63 @@ from torch.nn.utils import weight_norm, remove_weight_norm, spectral_norm
 from commons import init_weights, get_padding
 import utils
 from frame_prior_network import VariancePredictor, EnergyPredictor, FramePitchPredictor
-from vdecoder.hifigan.models import Generator
+# from vdecoder.hifigan.models import Generator
+
+class Generator(torch.nn.Module):
+    def __init__(self, initial_channel, resblock, resblock_kernel_sizes, resblock_dilation_sizes, upsample_rates,
+                 upsample_initial_channel, upsample_kernel_sizes, gin_channels=0):
+        super(Generator, self).__init__()
+        self.num_kernels = len(resblock_kernel_sizes)
+        self.num_upsamples = len(upsample_rates)
+        self.conv_pre = Conv1d(initial_channel, upsample_initial_channel, 7, 1, padding=3)
+        resblock = modules.ResBlock1 if resblock == '1' else modules.ResBlock2
+
+        self.ups = nn.ModuleList()
+        for i, (u, k) in enumerate(zip(upsample_rates, upsample_kernel_sizes)):
+            self.ups.append(weight_norm(
+                ConvTranspose1d(upsample_initial_channel // (2 ** i), upsample_initial_channel // (2 ** (i + 1)),
+                                k, u, padding=(k - u) // 2)))
+
+        self.resblocks = nn.ModuleList()
+        for i in range(len(self.ups)):
+            ch = upsample_initial_channel // (2 ** (i + 1))
+            for j, (k, d) in enumerate(zip(resblock_kernel_sizes, resblock_dilation_sizes)):
+                self.resblocks.append(resblock(ch, k, d))
+
+        self.conv_post = Conv1d(ch, 1, 7, 1, padding=3, bias=False)
+        self.ups.apply(init_weights)
+
+        if gin_channels != 0:
+            self.cond = nn.Conv1d(gin_channels, upsample_initial_channel, 1)
+
+    def forward(self, x, g=None):
+        x = self.conv_pre(x)
+        if g is not None:
+            x = x + self.cond(g)
+
+        for i in range(self.num_upsamples):
+            x = F.leaky_relu(x, modules.LRELU_SLOPE)
+            x = self.ups[i](x)
+            xs = None
+            for j in range(self.num_kernels):
+                if xs is None:
+                    xs = self.resblocks[i * self.num_kernels + j](x)
+                else:
+                    xs += self.resblocks[i * self.num_kernels + j](x)
+            x = xs / self.num_kernels
+        x = F.leaky_relu(x)
+        x = self.conv_post(x)
+        x = torch.tanh(x)
+
+        return x
+
+    def remove_weight_norm(self):
+        print('Removing weight norm...')
+        for l in self.ups:
+            remove_weight_norm(l)
+        for l in self.resblocks:
+            l.remove_weight_norm()
+
 
 
 class StochasticDurationPredictor(nn.Module):
@@ -586,8 +642,7 @@ class SynthesizerTrn(nn.Module):
                                         kernel_size, p_dropout)
         self.energy_predictor = EnergyPredictor(hidden_channels, gin_channels, energy_min, energy_max, energy_mean,
                                                 energy_std)
-        self.frame_pitch_predictor = FramePitchPredictor(hidden_channels, gin_channels, pitch_mean=f0_mean,
-                                                         pitch_std=f0_std)
+        self.frame_pitch_emb = nn.Embedding(256, hidden_channels)
         self.project = Projection(hidden_channels, inter_channels)
 
         if n_speakers > 1:
@@ -628,25 +683,9 @@ class SynthesizerTrn(nn.Module):
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x_frame.size(2)), 1).to(x.dtype)  # 更新x_mask矩阵
         x_mask = x_mask.to(x.device)
 
-        # # 帧级f0预测
-        # frame_f0 = frame_f0[:, :x_frame.shape[-1]]
-        # frame_pred_norm_pitch, frame_norm_pitch, frame_pitch_embedding, l_pitch_frame = self.frame_pitch_predictor(x_frame, frame_f0=frame_f0, g=g)
-        # x_frame += frame_pitch_embedding
+        x_frame += self.frame_pitch_emb(utils.f0_to_coarse(frame_f0)).transpose(1, 2)
         l_pitch = l_pitch_ph
 
-        max_len = x_frame.size(2)
-        d_model = x_frame.size(1)
-        batch_size = x_frame.size(0)
-
-        # Position Encoding
-        pe = torch.zeros(batch_size, max_len, d_model)
-        position = torch.arange(0, max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) *
-                             -(math.log(10000.0) / d_model))
-        pe[:, :, 0::2] = torch.sin(position * div_term)
-        pe[:, :, 1::2] = torch.cos(position * div_term)
-        pe = pe.transpose(1, 2).to(x_frame.device)
-        x_frame = x_frame + pe
         # 帧优先级网络
         x_frame = self.frame_prior_net(x_frame, x_mask)
         x_frame = x_frame.transpose(1, 2)
@@ -691,39 +730,17 @@ class SynthesizerTrn(nn.Module):
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x_frame.size(2)), 1).to(x.dtype)
         x_mask = x_mask.to(x.device)
 
-        # # 帧级f0预测
-        # if manual_f0 is not  None:
-        #     pred_norm_pitch,norm_pitch, embedding, l_pitch = self.frame_pitch_predictor(x_frame, manual_f0, g=g)
-        #     frame_emb = embedding
-        #     pred_pitch = manual_f0
-        # else:
-        #     frame_emb, pred_pitch = self.frame_pitch_predictor.infer(x_frame, g=g)
-        # # frame_emb, _ = self.frame_pitch_predictor.infer(x_frame, g=g)
-        # x_frame += frame_emb
 
         max_len = x_frame.size(2)
+        x_frame += self.frame_pitch_emb(utils.f0_to_coarse(manual_f0)).transpose(1, 2)
 
-        import data_utils
-        manual_f0 = torch.FloatTensor(data_utils.resize2d(manual_f0.squeeze(0).cpu().numpy(), max_len)).unsqueeze(
-            0).cuda()
-
-        d_model = x_frame.size(1)
-        batch_size = x_frame.size(0)
-        pe = torch.zeros(batch_size, max_len, d_model)
-        position = torch.arange(0, max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) *
-                             -(math.log(10000.0) / d_model))
-        pe[:, :, 0::2] = torch.sin(position * div_term)
-        pe[:, :, 1::2] = torch.cos(position * div_term)
-        pe = pe.transpose(1, 2).to(x_frame.device)
-        x_frame = x_frame + pe
 
         x_frame = self.frame_prior_net(x_frame, x_mask)
         x_frame = x_frame.transpose(1, 2)
         m_p, logs_p = self.project(x_frame, x_mask)
         z_p = m_p + torch.randn_like(m_p) * torch.exp(logs_p) * noise_scale
         z = self.flow(z_p, x_mask, g=g, reverse=True)
-        o = self.nsf_dec((z * x_mask)[:, :, :max_len], g=g, f0=manual_f0)
+        o = self.nsf_dec((z * x_mask)[:, :, :max_len], g=g, f0=manual_f0*0.5)
 
         return o, x_mask, (z, z_p, m_p, logs_p), pred_f0
     # 
