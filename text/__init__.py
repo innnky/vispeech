@@ -1,39 +1,25 @@
 """ from https://github.com/keithito/tacotron """
 import unicodedata
+try:
+    from paddlespeech.t2s.frontend.zh_frontend import Frontend
+    frontend = Frontend()
+except:
+    print("failed to import paddlespeech text frontend")
 
 from text.symbols import symbols
-import jieba
-import cn2an
 import re
-from pypinyin import pinyin, lazy_pinyin, Style
 from g2p_en import G2p
 from string import punctuation
 # Mappings from symbol to numeric ID and vice versa:
 _symbol_to_id = {s: i for i, s in enumerate(symbols)}
 _id_to_symbol = {i: s for i, s in enumerate(symbols)}
 
-pu_symbols = [',', '.', '!', '?', '…', '-', '~']
-pre = "text/"
-all_pinyin = [i.split("\t")[0] for i in open(pre+"zh_dict.dict").readlines() if i.split("\t")[0] not in pu_symbols]
-pinyin2ph = {i.split("\t")[0]:i.split("\t")[-1].strip().split(" ") for  i in open(pre+"zh_dict.dict").readlines()}
+pu_symbols = ['!', '?', '…']
 
-def number_to_chinese(text):
-    numbers = re.findall(r'\d+(?:\.?\d+)?', text)
-    for number in numbers:
-        text = text.replace(number, cn2an.an2cn(number), 1)
-    return text
+replace_pu_with_sp = True
+if not replace_pu_with_sp:
+    symbols += pu_symbols
 
-def chinese_to_bopomofo(text):
-    text = text.replace('、', '，').replace('；', '，').replace('：', '，')
-    words = jieba.lcut(text, cut_all=False)
-    text = ''
-    for word in words:
-        pinyins = lazy_pinyin(word, style=Style.TONE3, neutral_tone_with_five=True,strict=False)
-        for p in pinyins:
-            if p in ["n1", "n2", "n3", "n4"]:
-                p = p.replace("n", "en")
-            text += ' '+p
-    return text.strip()
 
 def str_replace( data):
     chinaTab = ['：', '；', '，', '。', '！', '？', '【', '】', '“', '（', '）', '%', '#', '@', '&', "‘", ' ', '\n', '”',"—", "·",'、']
@@ -43,27 +29,46 @@ def str_replace( data):
             data = data.replace(chinaTab[index], englishTab[index])
     return data
 
-def clean_zh(text):
-    rt = text
-    text = number_to_chinese(text)
-    text = chinese_to_bopomofo(text)
-    # text = unicodedata.normalize('NFKD', text)
-    text = str_replace(text)
-    ch = " ".join([ch for  ch in text.split(" ") if ch in all_pinyin or ch in pu_symbols])
-    return ch.strip()
+def pu_symbol_replace(data):
+    chinaTab = ['！', '？', "…"]
+    englishTab = ['!', '?', "…"]
+    for index in range(len(chinaTab)):
+        if chinaTab[index] in data:
+            data = data.replace(chinaTab[index], englishTab[index])
+    return data
+
+def get_chinese_phonemes(text):
+    res = []
+    try:
+        text = text.replace("嗯", "恩")
+        res += frontend.get_phonemes(text)[0]
+    except:
+        pass
+    return res
 
 def preprocess_chinese(text):
-  pinyins = clean_zh(text).split(" ")
-  phones = []
-  for pyin in pinyins:
-      if pyin in pu_symbols:
-          phones.append(pyin)
-      else:
-          try:
-            phones += pinyin2ph[pyin]
-          except:
-            pass
-  return phones
+
+    text = pu_symbol_replace(text)
+    phonemes = []
+    seg = ""
+    if not replace_pu_with_sp:
+        for ch in text:
+            if ch in pu_symbols:
+                phonemes += get_chinese_phonemes(seg)
+                seg = ""
+                phonemes.append(ch)
+            else:
+                seg+=ch
+        phonemes+=get_chinese_phonemes(seg)
+    else:
+        phonemes += get_chinese_phonemes(text)
+
+    for i in range(len(phonemes)):
+        if phonemes[i] not in symbols:
+            phonemes[i] = "sp"
+
+    return phonemes
+
 
 def read_lexicon(lex_path):
     lexicon = {}
@@ -75,7 +80,7 @@ def read_lexicon(lex_path):
             if word.lower() not in lexicon:
                 lexicon[word.lower()] = phones
     return lexicon
-lexicon = read_lexicon(pre+"en_dict.dict")
+lexicon = read_lexicon("text/en_dict.dict")
 
 def preprocess_english(text):
     text = text.rstrip(punctuation)
@@ -194,6 +199,9 @@ mf = MixFrontend()
 def text_to_sequence(text):
     phones = text_to_phones(text)
     return cleaned_text_to_sequence(phones)
+
+
+
 def text_to_phones(text):
     segs = mf.get_segment(text)
     phones = []
@@ -202,9 +210,11 @@ def text_to_phones(text):
             phones += preprocess_chinese(seg[0])
         elif seg[1] == "en":
             phones += preprocess_english(seg[0])
+    print(phones)
     return phones
 if __name__ == '__main__':
-    text = "大家好33啊我是Ab3s,?萨达撒abst 123、、、 但是、、、A B C D"
+    text = "大家好33啊我是Ab3s,?萨达撒abst 123、、、 但是、、、A B C D!"
+    text = "嗯？什么东西…沉甸甸的…"
     print(text_to_sequence(text))
 
     # print(preprocess_english("A b c d"))

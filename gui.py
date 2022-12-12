@@ -37,7 +37,7 @@ net_g = SynthesizerTrn(
 
 _ = net_g.eval()
 
-_ = utils.load_checkpoint("ckpts/G_400800.pth", net_g, None)
+_ = utils.load_checkpoint("ckpts/G_14400.pth", net_g, None)
 
 
 

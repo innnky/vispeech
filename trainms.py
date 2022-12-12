@@ -248,11 +248,18 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                     "all/f0": utils.plot_data_to_numpy(frame_norm_pitch[0, :].cpu().numpy(), frame_pred_norm_pitch[0, :].detach().cpu().numpy()),
                     "all/energy": utils.plot_data_to_numpy(norm_energy[0, :].cpu().numpy(), pred_norm_energy[0, :].detach().cpu().numpy()),
                 }
+                audio_dict={
+                    f"train/gen": y_hat[0],
+                    f"train/gt": wav[0],
+                }
                 utils.summarize(
                     writer=writer,
                     global_step=global_step,
                     images=image_dict,
-                    scalars=scalar_dict)
+                    scalars=scalar_dict,
+                    audios=audio_dict,
+                    audio_sampling_rate=hps.data.sampling_rate
+                )
 
             if global_step % hps.train.eval_interval == 0:
                 evaluate(hps, net_g, eval_loader, writer_eval)
@@ -279,6 +286,7 @@ def evaluate(hps, generator, eval_loader, writer_eval):
                 phonemes, phonemes_lengths = phonemes.cuda(0), phonemes_lengths.cuda(0)
                 spec, spec_lengths = spec.cuda(0), spec_lengths.cuda(0)
                 wav, wav_lengths = wav.cuda(0), wav_lengths.cuda(0)
+                frame_f0 = frame_f0.cuda(0)
                 notepitch = f0.cuda(0)
                 phndur = phndur.cuda(0)
                 sid = sid.cuda(0)
@@ -288,6 +296,7 @@ def evaluate(hps, generator, eval_loader, writer_eval):
                 notepitch = notepitch[:1]
                 sid = sid[:1]
                 phndur = phndur[:1]
+                frame_f0 = frame_f0[:1]
 
                 spec = spec[:1]
                 spec_lengths = spec_lengths[:1]
@@ -295,7 +304,7 @@ def evaluate(hps, generator, eval_loader, writer_eval):
                 wav_lengths = wav_lengths[:1]
                 # break
                 y_hat, mask, xx, pred_f0 = generator.module.infer(phonemes, phonemes_lengths,
-                                                         max_len=1000, sid=sid,shift=shift,energy_control=energy_shift)
+                                                         max_len=1000, sid=sid,shift=shift,energy_control=energy_shift,manual_f0=frame_f0, manual_duration=phndur)
                 y_hat_lengths = mask.sum([1, 2]).long() * hps.data.hop_length
 
                 mel = spec_to_mel_torch(

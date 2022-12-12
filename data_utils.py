@@ -10,7 +10,12 @@ import commons
 from mel_processing import spectrogram_torch
 from utils import load_wav_to_torch, load_filepaths_and_text
 from text import cleaned_text_to_sequence
-
+def resize2d(x, target_len):
+    source = np.array(x)
+    source[source<0.001] = np.nan
+    target = np.interp(np.arange(0, len(source)*target_len, len(source))/ target_len, np.arange(0, len(source)), source)
+    res = np.nan_to_num(target)
+    return res
 
 """Multi speaker version"""
 class TextAudioSpeakerLoader(torch.utils.data.Dataset):
@@ -70,7 +75,10 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         spec, wav = self.get_audio(wav_path)
         f0 = torch.FloatTensor([float(i) for i in phf0.strip().split(" ")])
         energy = torch.FloatTensor([float(i) for i in energy.strip().split(" ")])
-        frame_f0 = torch.FloatTensor(np.load(wav_path+".f0.npy"))
+        load = np.load(wav_path + ".f0.npy")
+
+        frame_f0 = torch.FloatTensor(resize2d(load, spec.shape[-1]))
+
         assert abs(frame_f0.shape[-1] - sum(phn_dur))<2, wav_path
         assert energy.shape == f0.shape
         assert abs(spec.shape[-1] - sum(phn_dur))<2, wav_path
