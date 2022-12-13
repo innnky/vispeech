@@ -700,7 +700,7 @@ class SynthesizerTrn(nn.Module):
             z, z_p, m_p, logs_p, m_q, logs_q), pred_f0, pred_norm_energy, norm_energy
 
     def infer(self, phonemes, phonemes_lengths,
-              sid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None, shift=None, energy_control=None, pitch_control=None):
+              sid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None, shift=None, energy_control=None, pitch_control=None,manual_duration=None):
         if self.n_speakers > 0:
             g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
         else:
@@ -721,7 +721,8 @@ class SynthesizerTrn(nn.Module):
         # energy预测
         energy_emb = self.energy_predictor.infer(x, g, energy_control)
         x += energy_emb
-
+        if manual_duration is not None:
+            w = manual_duration.unsqueeze(0)
         # 扩帧
         x_frame, x_lengths = self.lr(x, w, phonemes_lengths)
         x_frame = x_frame.to(x.device)

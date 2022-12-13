@@ -1,3 +1,3 @@
-spk = "VO_paimon"
+spk = "paimon_extend"
 sid = 1
-transcription_path =  "preprocess/transcription/paimon.txt"
+transcription_path =  "preprocess/transcription/paimon_extend.txt"

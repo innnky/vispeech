@@ -75,26 +75,41 @@ with open(f"preprocess/temp/{spk}.txt" ,"w") as outfile:
             pitch = get_pitch(wav_path, sum(durations))
         except:
             continue
-        np.save(target_path+".f0.npy", pitch)
-        nonzero_ids = np.where(pitch != 0)[0]
-        try:
-            interp_fn = interp1d(
-                nonzero_ids,
-                pitch[nonzero_ids],
-                fill_value=(pitch[nonzero_ids[0]], pitch[nonzero_ids[-1]]),
-                bounds_error=False,
-            )
-        except:
-            continue
-        pitch = interp_fn(np.arange(0, len(pitch)))
+        # np.save(target_path+".f0.npy", pitch)
+        # nonzero_ids = np.where(pitch != 0)[0]
+        # try:
+        #     interp_fn = interp1d(
+        #         nonzero_ids,
+        #         pitch[nonzero_ids],
+        #         fill_value=(pitch[nonzero_ids[0]], pitch[nonzero_ids[-1]]),
+        #         bounds_error=False,
+        #     )
+        # except:
+        #     continue
+        # pitch = interp_fn(np.arange(0, len(pitch)))
+        # pos = 0
+        # for i, d in enumerate(durations):
+        #     if d > 0:
+        #         pitch[i] = np.mean(pitch[pos: pos + d])
+        #     else:
+        #         pitch[i] = 0
+        #     pos += d
+        # pitch = pitch[: len(durations)]
+
+        def get_avg(x):
+            if len(x[x != 0]) == 0:
+                return 0
+            else:
+                return np.average(x[x != 0])
+
+        phf0 = []
         pos = 0
         for i, d in enumerate(durations):
-            if d > 0:
-                pitch[i] = np.mean(pitch[pos: pos + d])
-            else:
-                pitch[i] = 0
+
+            phf0.append(get_avg(pitch[pos:pos+d]))
             pos += d
-        pitch = pitch[: len(durations)]
+        pitch = np.array(phf0)
+
         nphf0 = " ".join(['{:.3f}'.format(i) for i in pitch])
 
         energy = get_energy(wav_path, sum(durations))

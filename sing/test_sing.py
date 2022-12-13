@@ -161,7 +161,7 @@ net_g = SynthesizerTrn(
 
 _ = net_g.eval()
 
-_ = utils.load_checkpoint("/Volumes/Extend/下载/vits-main/ckpts/G_400800.pth", net_g, None)
+_ = utils.load_checkpoint("/Volumes/Extend/下载/G_6000.pth", net_g, None)
 
 
 text_norm = torch.LongTensor(phseq)
@@ -172,6 +172,6 @@ manual_f0 = torch.FloatTensor(f0).unsqueeze(0)
 manual_dur = torch.LongTensor(durations).unsqueeze(0)
 
 result = net_g.infer(x_tst, x_tst_lengths, noise_scale=.667, noise_scale_w=0.8, sid=spk,
-                                length_scale=1,pitch_control=pitch,manual_duration=manual_dur,manual_f0=manual_f0)
+                                length_scale=1,pitch_control=pitch,manual_duration=manual_dur)
 audio = result[0][0, 0].data.float().numpy()
 soundfile.write("samples/sing.wav", audio, 44100)

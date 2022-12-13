@@ -12,7 +12,8 @@ special_map = {
     "un": "uen1",
     "En": "ian1",
     "SP": "sp",
-    "AP": "sil"
+    "AP": "sil",
+    "a": "a2"
 }
 
 def remap_single_phone(phone):
