@@ -10,7 +10,12 @@ import commons
 from mel_processing import spectrogram_torch
 from utils import load_wav_to_torch, load_filepaths_and_text
 from text import cleaned_text_to_sequence
-
+def resize2d(x, target_len):
+    source = np.array(x)
+    source[source<0.001] = np.nan
+    target = np.interp(np.arange(0, len(source)*target_len, len(source))/ target_len, np.arange(0, len(source)), source)
+    res = np.nan_to_num(target)
+    return res
 
 """Multi speaker version"""
 class TextAudioSpeakerLoader(torch.utils.data.Dataset):
@@ -70,11 +75,16 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         spec, wav = self.get_audio(wav_path)
         f0 = torch.FloatTensor([float(i) for i in phf0.strip().split(" ")])
         energy = torch.FloatTensor([float(i) for i in energy.strip().split(" ")])
+        load = np.load(wav_path + ".f0.npy")
+
+        frame_f0 = torch.FloatTensor(resize2d(load, sum(phn_dur)))
+
+        assert abs(frame_f0.shape[-1] - sum(phn_dur))<2, wav_path
         assert energy.shape == f0.shape
         assert abs(spec.shape[-1] - sum(phn_dur))<2, wav_path
         assert phonemes.shape ==phn_dur.shape, phonemes
         assert phonemes.shape ==f0.shape
-        return phonemes,f0, phn_dur, spec, wav, spk,energy
+        return phonemes,f0, phn_dur, spec, wav, spk,energy,frame_f0
 
     def get_phonemes(self, phonemes):
         phonemes_norm = cleaned_text_to_sequence(phonemes.split(" "))
@@ -140,6 +150,7 @@ class TextAudioSpeakerCollate():
         max_spec_len = max([x[3].size(1) for x in batch])
         max_wav_len = max([x[4].size(1) for x in batch])
         max_energy_len = max([len(x[6]) for x in batch])
+        max_frame_f0_len = max([len(x[7]) for x in batch])
 
 
         phonemes_lengths = torch.LongTensor(len(batch))
@@ -154,6 +165,7 @@ class TextAudioSpeakerCollate():
         spec_padded = torch.FloatTensor(len(batch), batch[0][3].size(0), max_spec_len)
         wav_padded = torch.FloatTensor(len(batch), 1, max_wav_len)
         energy_padded = torch.FloatTensor(len(batch), max_energy_len)
+        frame_f0_padded = torch.FloatTensor(len(batch), max_frame_f0_len)
 
 
         phonemes_padded.zero_()
@@ -162,6 +174,7 @@ class TextAudioSpeakerCollate():
         wav_padded.zero_()
         f0_padded.zero_()
         energy_padded.zero_()
+        frame_f0_padded.zero_()
 
         for i in range(len(ids_sorted_decreasing)):
             row = batch[ids_sorted_decreasing[i]]
@@ -192,12 +205,15 @@ class TextAudioSpeakerCollate():
 
             energy_padded[i, :energy.size(0)] = energy
 
+            frame_f0 = row[7]
+            frame_f0_padded[i, :frame_f0.size(0)] = frame_f0
+
         # (phonemes, phonemes_lengths,
         #  f0,
         #  phndur,
         #  spec, spec_lengths, wav, wav_lengths)
         # print(f0_padded.shape, sum(phndur_padded[0,:]), phndur_padded[0,:])
-        return  phonemes_padded, phonemes_lengths,f0_padded,energy_padded,phndur_padded,\
+        return  phonemes_padded, phonemes_lengths,f0_padded,frame_f0_padded,energy_padded,phndur_padded,\
                    spec_padded, spec_lengths, \
                    wav_padded, wav_lengths, sid
 
