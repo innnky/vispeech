@@ -12,64 +12,7 @@ from torch.nn import Conv1d, ConvTranspose1d, AvgPool1d, Conv2d
 from torch.nn.utils import weight_norm, remove_weight_norm, spectral_norm
 from commons import init_weights, get_padding
 import utils
-from frame_prior_network import VariancePredictor, EnergyPredictor, FramePitchPredictor
-# from vdecoder.hifigan.models import Generator
-
-class Generator(torch.nn.Module):
-    def __init__(self, initial_channel, resblock, resblock_kernel_sizes, resblock_dilation_sizes, upsample_rates,
-                 upsample_initial_channel, upsample_kernel_sizes, gin_channels=0):
-        super(Generator, self).__init__()
-        self.num_kernels = len(resblock_kernel_sizes)
-        self.num_upsamples = len(upsample_rates)
-        self.conv_pre = Conv1d(initial_channel, upsample_initial_channel, 7, 1, padding=3)
-        resblock = modules.ResBlock1 if resblock == '1' else modules.ResBlock2
-
-        self.ups = nn.ModuleList()
-        for i, (u, k) in enumerate(zip(upsample_rates, upsample_kernel_sizes)):
-            self.ups.append(weight_norm(
-                ConvTranspose1d(upsample_initial_channel // (2 ** i), upsample_initial_channel // (2 ** (i + 1)),
-                                k, u, padding=(k - u) // 2)))
-
-        self.resblocks = nn.ModuleList()
-        for i in range(len(self.ups)):
-            ch = upsample_initial_channel // (2 ** (i + 1))
-            for j, (k, d) in enumerate(zip(resblock_kernel_sizes, resblock_dilation_sizes)):
-                self.resblocks.append(resblock(ch, k, d))
-
-        self.conv_post = Conv1d(ch, 1, 7, 1, padding=3, bias=False)
-        self.ups.apply(init_weights)
-
-        if gin_channels != 0:
-            self.cond = nn.Conv1d(gin_channels, upsample_initial_channel, 1)
-
-    def forward(self, x, g=None):
-        x = self.conv_pre(x)
-        if g is not None:
-            x = x + self.cond(g)
-
-        for i in range(self.num_upsamples):
-            x = F.leaky_relu(x, modules.LRELU_SLOPE)
-            x = self.ups[i](x)
-            xs = None
-            for j in range(self.num_kernels):
-                if xs is None:
-                    xs = self.resblocks[i * self.num_kernels + j](x)
-                else:
-                    xs += self.resblocks[i * self.num_kernels + j](x)
-            x = xs / self.num_kernels
-        x = F.leaky_relu(x)
-        x = self.conv_post(x)
-        x = torch.tanh(x)
-
-        return x
-
-    def remove_weight_norm(self):
-        print('Removing weight norm...')
-        for l in self.ups:
-            remove_weight_norm(l)
-        for l in self.resblocks:
-            l.remove_weight_norm()
-
+from frame_prior_network import VariancePredictor, EnergyPredictor
 
 
 class StochasticDurationPredictor(nn.Module):
@@ -296,6 +239,62 @@ class PosteriorEncoder(nn.Module):
         m, logs = torch.split(stats, self.out_channels, dim=1)
         z = (m + torch.randn_like(m) * torch.exp(logs)) * x_mask
         return z, m, logs, x_mask
+
+
+class Generator(torch.nn.Module):
+    def __init__(self, initial_channel, resblock, resblock_kernel_sizes, resblock_dilation_sizes, upsample_rates,
+                 upsample_initial_channel, upsample_kernel_sizes, gin_channels=0):
+        super(Generator, self).__init__()
+        self.num_kernels = len(resblock_kernel_sizes)
+        self.num_upsamples = len(upsample_rates)
+        self.conv_pre = Conv1d(initial_channel, upsample_initial_channel, 7, 1, padding=3)
+        resblock = modules.ResBlock1 if resblock == '1' else modules.ResBlock2
+
+        self.ups = nn.ModuleList()
+        for i, (u, k) in enumerate(zip(upsample_rates, upsample_kernel_sizes)):
+            self.ups.append(weight_norm(
+                ConvTranspose1d(upsample_initial_channel // (2 ** i), upsample_initial_channel // (2 ** (i + 1)),
+                                k, u, padding=(k - u) // 2)))
+
+        self.resblocks = nn.ModuleList()
+        for i in range(len(self.ups)):
+            ch = upsample_initial_channel // (2 ** (i + 1))
+            for j, (k, d) in enumerate(zip(resblock_kernel_sizes, resblock_dilation_sizes)):
+                self.resblocks.append(resblock(ch, k, d))
+
+        self.conv_post = Conv1d(ch, 1, 7, 1, padding=3, bias=False)
+        self.ups.apply(init_weights)
+
+        if gin_channels != 0:
+            self.cond = nn.Conv1d(gin_channels, upsample_initial_channel, 1)
+
+    def forward(self, x, g=None):
+        x = self.conv_pre(x)
+        if g is not None:
+            x = x + self.cond(g)
+
+        for i in range(self.num_upsamples):
+            x = F.leaky_relu(x, modules.LRELU_SLOPE)
+            x = self.ups[i](x)
+            xs = None
+            for j in range(self.num_kernels):
+                if xs is None:
+                    xs = self.resblocks[i * self.num_kernels + j](x)
+                else:
+                    xs += self.resblocks[i * self.num_kernels + j](x)
+            x = xs / self.num_kernels
+        x = F.leaky_relu(x)
+        x = self.conv_post(x)
+        x = torch.tanh(x)
+
+        return x
+
+    def remove_weight_norm(self):
+        print('Removing weight norm...')
+        for l in self.ups:
+            remove_weight_norm(l)
+        for l in self.resblocks:
+            l.remove_weight_norm()
 
 
 class DiscriminatorP(torch.nn.Module):
@@ -614,18 +613,8 @@ class SynthesizerTrn(nn.Module):
                                  n_layers,
                                  kernel_size,
                                  p_dropout)
-        hps = {
-            "sampling_rate": 44100,
-            "inter_channels": 192,
-            "resblock": "1",
-            "resblock_kernel_sizes": [3, 7, 11],
-            "resblock_dilation_sizes": [[1, 3, 5], [1, 3, 5], [1, 3, 5]],
-            "upsample_rates": [8, 8, 4, 2],
-            "upsample_initial_channel": 512,
-            "upsample_kernel_sizes": [16, 16, 4, 4],
-            "gin_channels": 256,
-        }
-        self.nsf_dec = Generator(h=hps)
+        self.dec = Generator(inter_channels, resblock, resblock_kernel_sizes, resblock_dilation_sizes, upsample_rates,
+                             upsample_initial_channel, upsample_kernel_sizes, gin_channels=gin_channels)
         self.enc_q = PosteriorEncoder(spec_channels, inter_channels, hidden_channels, 5, 1, 16,
                                       gin_channels=gin_channels)
         self.flow = ResidualCouplingBlock(inter_channels, hidden_channels, 5, 1, 4, gin_channels=gin_channels)
@@ -642,13 +631,13 @@ class SynthesizerTrn(nn.Module):
                                         kernel_size, p_dropout)
         self.energy_predictor = EnergyPredictor(hidden_channels, gin_channels, energy_min, energy_max, energy_mean,
                                                 energy_std)
-        self.frame_pitch_emb = nn.Embedding(256, hidden_channels)
         self.project = Projection(hidden_channels, inter_channels)
 
         if n_speakers > 1:
             self.emb_g = nn.Embedding(n_speakers, gin_channels)
 
-    def forward(self, phonemes, phonemes_lengths, f0, frame_f0, energy, phndur, spec, spec_lengths, sid=None):
+    def forward(self, phonemes, phonemes_lengths, f0, energy, phndur, spec, spec_lengths, sid=None):
+
         if self.n_speakers > 0:
             g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
         else:
@@ -666,8 +655,9 @@ class SynthesizerTrn(nn.Module):
 
         # f0预测
         pred_norm_f0, pred_f0, pitch_embedding = self.pitch_net(x, x_mask, f0=f0, g=g)
-        l_pitch_ph = F.mse_loss(pred_norm_f0, self.pitch_net.normalize(f0))
+        l_pitch = F.mse_loss(pred_norm_f0, self.pitch_net.normalize(f0))
         x += pitch_embedding
+
         # energy预测
         pred_norm_energy, norm_energy, embedding, l_energy = self.energy_predictor(x, energy, g)
         x += embedding
@@ -679,12 +669,23 @@ class SynthesizerTrn(nn.Module):
         spec_padded = torch.zeros(spec.shape[0], spec.shape[1], x_frame.shape[-1]).float().to(spec.device)
         spec_padded[:, :, :spec.shape[-1]] = spec
         spec = spec_padded.detach()
+
         x_frame = x_frame.to(x.device)
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x_frame.size(2)), 1).to(x.dtype)  # 更新x_mask矩阵
         x_mask = x_mask.to(x.device)
+        max_len = x_frame.size(2)
+        d_model = x_frame.size(1)
+        batch_size = x_frame.size(0)
 
-        x_frame += self.frame_pitch_emb(utils.f0_to_coarse(frame_f0)).transpose(1, 2)
-        l_pitch = l_pitch_ph
+        # Position Encoding
+        pe = torch.zeros(batch_size, max_len, d_model)
+        position = torch.arange(0, max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) *
+                             -(math.log(10000.0) / d_model))
+        pe[:, :, 0::2] = torch.sin(position * div_term)
+        pe[:, :, 1::2] = torch.cos(position * div_term)
+        pe = pe.transpose(1, 2).to(x_frame.device)
+        x_frame = x_frame + pe
 
         # 帧优先级网络
         x_frame = self.frame_prior_net(x_frame, x_mask)
@@ -692,16 +693,14 @@ class SynthesizerTrn(nn.Module):
         m_p, logs_p = self.project(x_frame, x_mask)
         z, m_q, logs_q, y_mask = self.enc_q(spec, spec_lengths, g=g)
         z_p = self.flow(z, y_mask, g=g)
-        z_slice, pitch_slice, ids_slice = commons.rand_slice_segments_with_pitch(z, frame_f0, spec_lengths,
-                                                                                 self.segment_size)
-        o = self.nsf_dec(z_slice, g=g, f0=pitch_slice)
+
+        z_slice, ids_slice = commons.rand_slice_segments(z, spec_lengths, self.segment_size)
+        o = self.dec(z_slice, g=g)
         return o, l_length, l_pitch, l_energy, ids_slice, x_mask, y_mask, (
-            z, z_p, m_p, logs_p, m_q, logs_q), pred_f0, f0, pred_norm_energy, norm_energy
+            z, z_p, m_p, logs_p, m_q, logs_q), pred_f0, pred_norm_energy, norm_energy
 
     def infer(self, phonemes, phonemes_lengths,
-              sid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None,
-              shift=None, energy_control=None, pitch_control=None,
-              manual_duration=None, manual_f0=None):
+              sid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None, shift=None, energy_control=None, pitch_control=None):
         if self.n_speakers > 0:
             g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
         else:
@@ -722,34 +721,40 @@ class SynthesizerTrn(nn.Module):
         # energy预测
         energy_emb = self.energy_predictor.infer(x, g, energy_control)
         x += energy_emb
-        if manual_duration is not None:
-            w = manual_duration.unsqueeze(0)
+
         # 扩帧
         x_frame, x_lengths = self.lr(x, w, phonemes_lengths)
         x_frame = x_frame.to(x.device)
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x_frame.size(2)), 1).to(x.dtype)
         x_mask = x_mask.to(x.device)
 
-
         max_len = x_frame.size(2)
-        x_frame += self.frame_pitch_emb(utils.f0_to_coarse(manual_f0)).transpose(1, 2)
-
+        d_model = x_frame.size(1)
+        batch_size = x_frame.size(0)
+        pe = torch.zeros(batch_size, max_len, d_model)
+        position = torch.arange(0, max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) *
+                             -(math.log(10000.0) / d_model))
+        pe[:, :, 0::2] = torch.sin(position * div_term)
+        pe[:, :, 1::2] = torch.cos(position * div_term)
+        pe = pe.transpose(1, 2).to(x_frame.device)
+        x_frame = x_frame + pe
 
         x_frame = self.frame_prior_net(x_frame, x_mask)
         x_frame = x_frame.transpose(1, 2)
         m_p, logs_p = self.project(x_frame, x_mask)
         z_p = m_p + torch.randn_like(m_p) * torch.exp(logs_p) * noise_scale
         z = self.flow(z_p, x_mask, g=g, reverse=True)
-        o = self.nsf_dec((z * x_mask)[:, :, :max_len], g=g, f0=manual_f0*0.5)
+        o = self.dec((z * x_mask)[:, :, :max_len], g=g)
 
         return o, x_mask, (z, z_p, m_p, logs_p), pred_f0
-    # 
-    # def voice_conversion(self, y, y_lengths, sid_src, sid_tgt):
-    #     assert self.n_speakers > 0, "n_speakers have to be larger than 0."
-    #     g_src = self.emb_g(sid_src).unsqueeze(-1)
-    #     g_tgt = self.emb_g(sid_tgt).unsqueeze(-1)
-    #     z, m_q, logs_q, y_mask = self.enc_q(y, y_lengths, g=g_src)
-    #     z_p = self.flow(z, y_mask, g=g_src)
-    #     z_hat = self.flow(z_p, y_mask, g=g_tgt, reverse=True)
-    #     o_hat = self.nsf_dec(z_hat * y_mask, g=g_tgt)
-    #     return o_hat, y_mask, (z, z_p, z_hat)
+
+    def voice_conversion(self, y, y_lengths, sid_src, sid_tgt):
+        assert self.n_speakers > 0, "n_speakers have to be larger than 0."
+        g_src = self.emb_g(sid_src).unsqueeze(-1)
+        g_tgt = self.emb_g(sid_tgt).unsqueeze(-1)
+        z, m_q, logs_q, y_mask = self.enc_q(y, y_lengths, g=g_src)
+        z_p = self.flow(z, y_mask, g=g_src)
+        z_hat = self.flow(z_p, y_mask, g=g_tgt, reverse=True)
+        o_hat = self.dec(z_hat * y_mask, g=g_tgt)
+        return o_hat, y_mask, (z, z_p, z_hat)

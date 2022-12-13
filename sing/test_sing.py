@@ -129,19 +129,24 @@ f0 = f0
 # pitch = torch.FloatTensor(pitch).unsqueeze(0)
 # print(pitch)
 
-def get_avg(x):
-    if len(x[x != 0]) == 0:
-        return 0
-    else:
-        return np.average(x[x != 0])
+# def get_avg(x):
+#     if len(x[x != 0]) == 0:
+#         return 0
+#     else:
+#         return np.average(x[x != 0])
+#
+# phf0 = []
+# pos = 0
+# for i, d in enumerate(durations):
+#
+#     phf0.append(get_avg(f0[pos:pos+d]))
+#     pos += d
+# pitch = np.array(phf0)
+pitch = np.array([ 0, 65, 65, 67, 67, 69, 69, 70, 70, 67, 67, 69, 72, 72, 72,  0, 60, 60,
+         67, 67, 69, 69, 69, 69,  0, 60, 60, 64, 64, 65, 65, 65, 65, 60, 60, 57,
+         57,  0.0])
+pitch = 440 * (2 ** ((pitch - 69) / 12))
 
-phf0 = []
-pos = 0
-for i, d in enumerate(durations):
-
-    phf0.append(get_avg(f0[pos:pos+d]))
-    pos += d
-pitch = np.array(phf0)
 pitch = torch.FloatTensor(pitch).unsqueeze(0)
 print(pitch)
 hps = utils.get_hparams_from_file("configs/ms.json")
@@ -156,7 +161,7 @@ net_g = SynthesizerTrn(
 
 _ = net_g.eval()
 
-_ = utils.load_checkpoint("/Volumes/Extend/下载/G_27600.pth", net_g, None)
+_ = utils.load_checkpoint("/Volumes/Extend/下载/vits-main/ckpts/G_400800.pth", net_g, None)
 
 
 text_norm = torch.LongTensor(phseq)
