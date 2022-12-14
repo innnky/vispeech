@@ -39,11 +39,17 @@ def pu_symbol_replace(data):
 
 def get_chinese_phonemes(text):
     res = []
+    flag = False
+    if not '\u4e00' <= text[-1] <= '\u9fa5':
+        text = text[:-1]
+        flag = True
     try:
         text = text.replace("嗯", "恩")
         res += frontend.get_phonemes(text)[0]
     except:
         pass
+    if flag:
+        res.append("sp")
     return res
 
 def preprocess_chinese(text):

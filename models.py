@@ -737,7 +737,11 @@ class SynthesizerTrn(nn.Module):
         x_mask = x_mask.to(x.device)
 
         # 帧级f0预测
-        embedding, _ = self.frame_pitch_predictor.infer(x_frame, g=g)
+        if manual_f0 is None:
+            embedding, _ = self.frame_pitch_predictor.infer(x_frame, g=g)
+        else:
+            frame_pred_norm_pitch, frame_norm_pitch, embedding, l_pitch_frame = self.frame_pitch_predictor(x_frame, frame_f0=manual_f0, g=g)
+
         x_frame += embedding
 
         max_len = x_frame.size(2)

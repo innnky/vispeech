@@ -196,7 +196,7 @@ class FramePitchPredictor(nn.Module):
         if control is None:
             control = 1
         pred_pitch = self.denormalize(pred_norm_pitch)
-        pred_pitch[pred_pitch<10] = 0
+        pred_pitch[pred_pitch<50] = 0
         pred_pitch = pred_pitch * control
         embedding = self.pitch_embedding(utils.f0_to_coarse(pred_pitch)).transpose(1, 2)
         return embedding, pred_pitch
