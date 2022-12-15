@@ -1,4 +1,4 @@
-filelist = "filelists/traintaffy.txt"
+filelist = "filelists/val.txt"
 # filelists/val.txt
 import librosa
 import pyworld

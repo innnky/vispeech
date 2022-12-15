@@ -165,7 +165,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         with autocast(enabled=hps.train.fp16_run):
             time_3 = time.time()
             y_hat, l_length, l_pitch,l_energy, ids_slice, x_mask, z_mask, \
-            (z, z_p, m_p, logs_p, m_q, logs_q), frame_pred_norm_pitch, frame_norm_pitch, pred_norm_energy, norm_energy= net_g(phonemes, phonemes_lengths, f0,frame_f0, energy, phndur,
+            (z, z_p, m_p, logs_p, m_q, logs_q), frame_pred_norm_pitch, frame_norm_pitch= net_g(phonemes, phonemes_lengths, f0,frame_f0, energy, phndur,
                                                                  spec, spec_lengths, sid=sid)
             time_4 = time.time()
             mel = spec_to_mel_torch(
@@ -246,7 +246,6 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                     "slice/mel_gen": utils.plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),
                     "all/mel": utils.plot_spectrogram_to_numpy(mel[0].data.cpu().numpy()),
                     "all/f0": utils.plot_data_to_numpy(frame_norm_pitch[0, :].cpu().numpy(), frame_pred_norm_pitch[0, :].detach().cpu().numpy()),
-                    "all/energy": utils.plot_data_to_numpy(norm_energy[0, :].cpu().numpy(), pred_norm_energy[0, :].detach().cpu().numpy()),
                 }
                 audio_dict={
                     f"train/gen": y_hat[0],
@@ -304,7 +303,7 @@ def evaluate(hps, generator, eval_loader, writer_eval):
                 wav_lengths = wav_lengths[:1]
                 # break
                 y_hat, mask, xx, pred_f0 = generator.module.infer(phonemes, phonemes_lengths,
-                                                         max_len=1000, sid=sid,shift=shift,energy_control=energy_shift,manual_f0=frame_f0, manual_duration=phndur)
+                                                         max_len=1000, sid=sid,shift=shift,energy_control=energy_shift,pitch_control=f0,manual_f0=frame_f0, manual_duration=phndur)
                 y_hat_lengths = mask.sum([1, 2]).long() * hps.data.hop_length
 
                 mel = spec_to_mel_torch(
