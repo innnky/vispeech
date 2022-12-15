@@ -147,21 +147,6 @@ def get_phone_dur(tg, txx):
     return phone, duration
 
 
-#将拼音声调分割开来，减少symbol数量
-def sep_tone(phones, durations):
-    new_phones = []
-    new_durations = []
-    for ph,dur in zip(phones,durations):
-        if ph[-1] in ["1", "2", "3", "4", "5"]:
-            new_phones.append(ph[:-1])
-            new_durations.append(dur)
-            new_phones.append(ph[-1])
-            new_durations.append(0)
-        else:
-            new_phones.append(ph)
-            new_durations.append(dur)
-    return new_phones, new_durations
-
 def preprocess_speaker(outname, align_root, wav_root):
     with open(outname, "w") as out:
         for tg in sorted(os.listdir(align_root)):
@@ -169,7 +154,6 @@ def preprocess_speaker(outname, align_root, wav_root):
             if len(name)>1:
                 # try:
                 phone, duration = get_phone_dur(f"{align_root}/{name}.TextGrid",  f"{wav_root}/{name}.lab")
-                phone, duration = sep_tone(phone, duration )
 
                 phone = " ".join(phone)
                 duration = " ".join([str(i) for i in duration])

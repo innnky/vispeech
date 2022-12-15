@@ -11,27 +11,11 @@ from text.symbols import symbols
 import re
 from string import punctuation
 pu_symbols = ['!', '?', '…', ",", "."]
-old_symbols = [i for i in pu_symbols+symbols]
 
 replace_pu_with_sp = False
-def sep_tone(phones):
-    new_phones = []
-    for ph in phones:
-        if ph[-1] in ["1", "2", "3", "4", "5"] and ph[0].islower():
-            new_phones.append(ph[:-1])
-            new_phones.append(ph[-1])
-        else:
-            new_phones.append(ph)
-    return new_phones
 
-
-new_symbols = set(pu_symbols)
 if not replace_pu_with_sp:
-    phs = sep_tone(symbols)
-    for ph in phs:
-        new_symbols.add(ph)
-    symbols = list(new_symbols)
-# Mappings from symbol to numeric ID and vice versa:
+    symbols = symbols+pu_symbols
 _symbol_to_id = {s: i for i, s in enumerate(symbols)}
 _id_to_symbol = {i: s for i, s in enumerate(symbols)}
 # print(_symbol_to_id)
@@ -70,7 +54,7 @@ def get_chinese_phonemes(text):
 
 
 
-def preprocess_chinese(text,to_sep_tone=True):
+def preprocess_chinese(text):
 
     text = pu_symbol_replace(text)
     phonemes = []
@@ -86,16 +70,10 @@ def preprocess_chinese(text,to_sep_tone=True):
         phonemes+=get_chinese_phonemes(seg)
     else:
         phonemes += get_chinese_phonemes(text)
-    if to_sep_tone:
-        if not replace_pu_with_sp:
-            phonemes = sep_tone(phonemes)
-        for i in range(len(phonemes)):
-            if phonemes[i] not in symbols:
-                phonemes[i] = "sp"
-    else:
-        for i in range(len(phonemes)):
-            if phonemes[i] not in old_symbols:
-                phonemes[i] = "sp"
+
+    for i in range(len(phonemes)):
+        if phonemes[i] not in symbols:
+            phonemes[i] = "sp"
 
     return phonemes
 
