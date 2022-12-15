@@ -243,7 +243,7 @@ net_g = SynthesizerTrn(
 
 _ = net_g.eval()
 
-_ = utils.load_checkpoint("/Volumes/Extend/下载/model(5).pth", net_g, None)
+_ = utils.load_checkpoint("/Volumes/Extend/下载/modelnsf(1).pth", net_g, None)
 
 
 text_norm = torch.LongTensor(phseq)

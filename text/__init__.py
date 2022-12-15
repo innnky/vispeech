@@ -3,23 +3,38 @@ import unicodedata
 try:
     from paddlespeech.t2s.frontend.zh_frontend import Frontend
     frontend = Frontend()
+    from g2p_en import G2p
 except:
-    print("failed to import paddlespeech text frontend")
+    print("failed to import text frontend")
 
 from text.symbols import symbols
 import re
-from g2p_en import G2p
 from string import punctuation
+pu_symbols = ['!', '?', '…', ",", "."]
+old_symbols = [i for i in pu_symbols+symbols]
+
+replace_pu_with_sp = False
+def sep_tone(phones):
+    new_phones = []
+    for ph in phones:
+        if ph[-1] in ["1", "2", "3", "4", "5"] and ph[0].islower():
+            new_phones.append(ph[:-1])
+            new_phones.append(ph[-1])
+        else:
+            new_phones.append(ph)
+    return new_phones
+
+
+new_symbols = set(pu_symbols)
+if not replace_pu_with_sp:
+    phs = sep_tone(symbols)
+    for ph in phs:
+        new_symbols.add(ph)
+    symbols = list(new_symbols)
 # Mappings from symbol to numeric ID and vice versa:
 _symbol_to_id = {s: i for i, s in enumerate(symbols)}
 _id_to_symbol = {i: s for i, s in enumerate(symbols)}
-
-pu_symbols = ['!', '?', '…']
-
-replace_pu_with_sp = True
-if not replace_pu_with_sp:
-    symbols += pu_symbols
-
+# print(_symbol_to_id)
 
 def str_replace( data):
     chinaTab = ['：', '；', '，', '。', '！', '？', '【', '】', '“', '（', '）', '%', '#', '@', '&', "‘", ' ', '\n', '”',"—", "·",'、']
@@ -30,8 +45,8 @@ def str_replace( data):
     return data
 
 def pu_symbol_replace(data):
-    chinaTab = ['！', '？', "…"]
-    englishTab = ['!', '?', "…"]
+    chinaTab = ['！', '？', "…", "，", "。"]
+    englishTab = ['!', '?', "…", ",", "."]
     for index in range(len(chinaTab)):
         if chinaTab[index] in data:
             data = data.replace(chinaTab[index], englishTab[index])
@@ -40,19 +55,22 @@ def pu_symbol_replace(data):
 def get_chinese_phonemes(text):
     res = []
     flag = False
-    if not '\u4e00' <= text[-1] <= '\u9fa5':
-        text = text[:-1]
-        flag = True
+
     try:
+        if not '\u4e00' <= text[-1] <= '\u9fa5' and replace_pu_with_sp:
+            text = text[:-1]
+            flag = True
         text = text.replace("嗯", "恩")
         res += frontend.get_phonemes(text)[0]
     except:
         pass
-    if flag:
+    if flag and replace_pu_with_sp:
         res.append("sp")
     return res
 
-def preprocess_chinese(text):
+
+
+def preprocess_chinese(text,to_sep_tone=True):
 
     text = pu_symbol_replace(text)
     phonemes = []
@@ -68,10 +86,16 @@ def preprocess_chinese(text):
         phonemes+=get_chinese_phonemes(seg)
     else:
         phonemes += get_chinese_phonemes(text)
-
-    for i in range(len(phonemes)):
-        if phonemes[i] not in symbols:
-            phonemes[i] = "sp"
+    if to_sep_tone:
+        if not replace_pu_with_sp:
+            phonemes = sep_tone(phonemes)
+        for i in range(len(phonemes)):
+            if phonemes[i] not in symbols:
+                phonemes[i] = "sp"
+    else:
+        for i in range(len(phonemes)):
+            if phonemes[i] not in old_symbols:
+                phonemes[i] = "sp"
 
     return phonemes
 
@@ -212,15 +236,17 @@ def text_to_phones(text):
     segs = mf.get_segment(text)
     phones = []
     for seg in segs:
-        if seg[1] == "zh":
+        if seg[1] in ["zh","other"]:
             phones += preprocess_chinese(seg[0])
         elif seg[1] == "en":
             phones += preprocess_english(seg[0])
     print(phones)
     return phones
 if __name__ == '__main__':
-    text = "大家好33啊我是Ab3s,?萨达撒abst 123、、、 但是、、、A B C D!"
-    text = "嗯？什么东西…沉甸甸的…"
+    text = "大家好33啊我是Ab3s,?萨达撒abst 123、~~、、 但是、、、A B C D!"
+    # text = "嗯？什么东西…沉甸甸的…下午1:00，今天是2022/5/10"
+    # text = "早上好，今天是2020/10/29，最低温度是-3°C。"
+    # text = "…………"
     print(text_to_sequence(text))
 
     # print(preprocess_english("A b c d"))

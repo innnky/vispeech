@@ -786,3 +786,7 @@ class SynthesizerTrn(nn.Module):
     #     z_hat = self.flow(z_p, y_mask, g=g_tgt, reverse=True)
     #     o_hat = self.nsf_dec(z_hat * y_mask, g=g_tgt)
     #     return o_hat, y_mask, (z, z_p, z_hat)
+
+
+if __name__ == '__main__':
+    net = torch.nn.LSTM(192,1024,3, batch_first=True)

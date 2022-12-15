@@ -105,8 +105,10 @@ with open(f"preprocess/temp/{spk}.txt" ,"w") as outfile:
         phf0 = []
         pos = 0
         for i, d in enumerate(durations):
-
-            phf0.append(get_avg(pitch[pos:pos+d]))
+            if phones[i] in ['sp','sil']:
+                phf0.append(0)
+            else:
+                phf0.append(get_avg(pitch[pos:pos+d]))
             pos += d
         pitch = np.array(phf0)
 

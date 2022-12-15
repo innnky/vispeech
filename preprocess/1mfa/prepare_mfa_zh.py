@@ -7,7 +7,7 @@ from preprocess.config import spk, transcription_path
 # from paddlespeech.t2s.frontend.zh_frontend import Frontend
 
 # frontend = Frontend()
-from text import text_to_phones
+from text import preprocess_chinese
 
 spk_name = spk
 pathlib.Path(f"preprocess/1mfa/mfa_dataset").mkdir(exist_ok=True)
@@ -21,10 +21,15 @@ for line in open(transcription_path).readlines():
         shutil.copy(path, f"preprocess/1mfa/mfa_dataset/{spk_name}/{filename}")
 
     if os.path.exists(f"preprocess/1mfa/mfa_dataset/{spk_name}/{filename}"):
-        pinyins = text_to_phones(txt)
+        pinyins = preprocess_chinese(txt, to_sep_tone=False)
         # print(pinyins)
         if len(pinyins) == 0:
             print(txt)
+            print(txt)
+            print(txt)
+            print(txt)
+            print(txt)
+            continue
         label_path = f"preprocess/1mfa/mfa_dataset/{spk_name}/{filename}".replace("wav", "lab")
 
         with open(label_path, "w") as o:

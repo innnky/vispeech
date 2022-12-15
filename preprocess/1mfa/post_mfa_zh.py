@@ -4,6 +4,14 @@ from preprocess.config import spk, sid
 import numpy as np
 import tgt
 
+
+sil_phones = ["sil", "sp", "spn"]
+pu_symbols = [',', '.', '!', '?', '…']
+err_num = 0
+all_symbols = set()
+[[all_symbols.add(j) for j in i.strip().split(" ")[1:]] for i in open("mandarin_pinyin.dict").readlines()]
+all_pinyin = [i.split(" ")[0] for  i in open("mandarin_pinyin.dict").readlines()]
+
 align_root= f"preprocess/1mfa/mfa_result/{spk}"
 sampling_rate = 44100
 hop_length = 512
