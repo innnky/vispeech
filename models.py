@@ -154,8 +154,8 @@ class TextEncoder(nn.Module):
         self.kernel_size = kernel_size
         self.p_dropout = p_dropout
 
-        self.symbol_emb = nn.Embedding(n_vocab, hidden_channels)
-        nn.init.normal_(self.symbol_emb.weight, 0.0, hidden_channels ** -0.5)
+        self.emb = nn.Embedding(n_vocab, hidden_channels)
+        nn.init.normal_(self.emb.weight, 0.0, hidden_channels ** -0.5)
 
         self.encoder = attentions.Encoder(
             hidden_channels,
@@ -167,7 +167,7 @@ class TextEncoder(nn.Module):
         self.proj = nn.Conv1d(hidden_channels, out_channels * 2, 1)
 
     def forward(self, x, x_lengths):
-        x = self.symbol_emb(x) * math.sqrt(self.hidden_channels)  # [b, t, h]
+        x = self.emb(x) * math.sqrt(self.hidden_channels)  # [b, t, h]
         x = torch.transpose(x, 1, -1)  # [b, h, t]
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x.size(2)), 1).to(x.dtype)
 
@@ -583,7 +583,7 @@ class SynthesizerTrn(nn.Module):
         self.frame_prior_net = FramePriorNet(n_vocab, inter_channels, hidden_channels, filter_channels, n_heads,
                                              n_layers, kernel_size, p_dropout)
         self.pitch_emb = nn.Embedding(256, hidden_channels)
-        self.project = Projection(hidden_channels, inter_channels)
+        self.frame_project = Projection(hidden_channels, inter_channels)
 
         if n_speakers > 1:
             self.emb_g = nn.Embedding(n_speakers, gin_channels)
@@ -635,8 +635,7 @@ class SynthesizerTrn(nn.Module):
         # 帧优先级网络
         x_frame = self.frame_prior_net(x_frame, x_mask)
         x_frame = x_frame.transpose(1, 2)
-        m_p, logs_p, f0_pred = self.project(x_frame, x_mask)
-        print(f0_pred.shape,frame_f0.shape)
+        m_p, logs_p, f0_pred = self.frame_project(x_frame, x_mask)
         frame_f0 = frame_f0[:, :x_frame.shape[-1]]
         l_pitch = F.mse_loss(f0_pred,frame_f0)
 
@@ -650,9 +649,8 @@ class SynthesizerTrn(nn.Module):
             z, z_p, m_p, logs_p, m_q, logs_q),f0_pred,frame_f0
 
     def infer(self, phonemes, phonemes_lengths,
-              sid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None,
-              shift=None, energy_control=None, pitch_control=None,
-              manual_duration=None, manual_f0=None):
+              sid=None, noise_scale=1, length_scale=1, phone_f0=None,
+              duration=None, frame_f0=None):
         if self.n_speakers > 0:
             g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
         else:
@@ -663,11 +661,11 @@ class SynthesizerTrn(nn.Module):
         w = (torch.exp(logw) * x_mask - 1) * length_scale
         w = torch.ceil(w)
 
-        phone_pitch_embedding = self.pitch_emb(utils.f0_to_coarse(pitch_control)).transpose(1,2)
+        phone_pitch_embedding = self.pitch_emb(utils.f0_to_coarse(phone_f0)).transpose(1, 2)
         x += phone_pitch_embedding
 
-        if manual_duration is not None:
-            w = manual_duration.unsqueeze(0)
+        if duration is not None:
+            w = duration.unsqueeze(0)
         # 扩帧
         x_frame, x_lengths = self.lr(x, w, phonemes_lengths)
         x_frame = x_frame.to(x.device)
@@ -688,11 +686,11 @@ class SynthesizerTrn(nn.Module):
 
         x_frame = self.frame_prior_net(x_frame, x_mask)
         x_frame = x_frame.transpose(1, 2)
-        m_p, logs_p, pred_f0 = self.project(x_frame, x_mask)
-        if manual_f0 == None:
+        m_p, logs_p, pred_f0 = self.frame_project(x_frame, x_mask)
+        if frame_f0 == None:
             dec_f0 = pred_f0
         else:
-            dec_f0 = manual_f0
+            dec_f0 = frame_f0
         z_p = m_p + torch.randn_like(m_p) * torch.exp(logs_p) * noise_scale
         z = self.flow(z_p, x_mask, g=g, reverse=True)
         o = self.nsf_dec((z * x_mask)[:, :, :max_len], g=g, f0=dec_f0)

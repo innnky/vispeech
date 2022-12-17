@@ -97,7 +97,7 @@ class Ui_MainWindow(object):
             x_tst_lengths = torch.LongTensor([text_norm.size(0)])
             spk = torch.LongTensor([100])
             result = net_g.infer(x_tst, x_tst_lengths, noise_scale=.667, noise_scale_w=0.8, sid=spk,
-                                length_scale=1,pitch_control=pitch_control)
+                                 length_scale=1, phone_f0=pitch_control)
             audio = result[0][0, 0].data.float().numpy()
             soundfile.write("samples/out.wav", audio, 44100)
             pred_f0 = result[-1].data.float().numpy()

@@ -12,12 +12,7 @@ import re
 from string import punctuation
 pu_symbols = ['!', '?', '…', ",", "."]
 
-replace_pu_with_sp = False
-
-if not replace_pu_with_sp:
-    symbols = symbols+pu_symbols
 _symbol_to_id = {s: i for i, s in enumerate(symbols)}
-_id_to_symbol = {i: s for i, s in enumerate(symbols)}
 # print(_symbol_to_id)
 
 def str_replace( data):
@@ -38,18 +33,11 @@ def pu_symbol_replace(data):
 
 def get_chinese_phonemes(text):
     res = []
-    flag = False
-
     try:
-        if not '\u4e00' <= text[-1] <= '\u9fa5' and replace_pu_with_sp:
-            text = text[:-1]
-            flag = True
         text = text.replace("嗯", "恩")
         res += frontend.get_phonemes(text)[0]
     except:
         pass
-    if flag and replace_pu_with_sp:
-        res.append("sp")
     return res
 
 
@@ -59,20 +47,17 @@ def preprocess_chinese(text):
     text = pu_symbol_replace(text)
     phonemes = []
     seg = ""
-    if not replace_pu_with_sp:
-        for ch in text:
-            if ch in pu_symbols:
-                phonemes += get_chinese_phonemes(seg)
-                seg = ""
-                phonemes.append(ch)
-            else:
-                seg+=ch
-        phonemes+=get_chinese_phonemes(seg)
-    else:
-        phonemes += get_chinese_phonemes(text)
+    for ch in text:
+        if ch in pu_symbols:
+            phonemes += get_chinese_phonemes(seg)
+            seg = ""
+            phonemes.append(ch)
+        else:
+            seg+=ch
+    phonemes+=get_chinese_phonemes(seg)
 
     for i in range(len(phonemes)):
-        if phonemes[i] not in symbols:
+        if phonemes[i] not in symbols+pu_symbols:
             phonemes[i] = "sp"
 
     return phonemes
@@ -121,14 +106,6 @@ def cleaned_text_to_sequence(cleaned_text):
   sequence = [_symbol_to_id[symbol] for symbol in cleaned_text]
   return sequence
 
-
-def sequence_to_text(sequence):
-  '''Converts a sequence of IDs back to a string'''
-  result = ''
-  for symbol_id in sequence:
-    s = _id_to_symbol[symbol_id]
-    result += s
-  return result
 
 
 # from paddle speech https://github.com/PaddlePaddle/PaddleSpeech/blob/develop/paddlespeech/t2s/frontend/mix_frontend.py
@@ -221,7 +198,7 @@ def text_to_phones(text):
     print(phones)
     return phones
 if __name__ == '__main__':
-    text = "大家好33啊我是Ab3s,?萨达撒abst 123、~~、、 但是、、、A B C D!"
+    text = "奥大家好33啊我是Ab3s,?萨达撒abst 123、~~、、 但是、、、A B C D!"
     # text = "嗯？什么东西…沉甸甸的…下午1:00，今天是2022/5/10"
     # text = "早上好，今天是2020/10/29，最低温度是-3°C。"
     # text = "…………"

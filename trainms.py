@@ -14,7 +14,9 @@ import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.cuda.amp import autocast, GradScaler
-
+import logging
+logger = logging.getLogger("matplotlib")
+logger.setLevel(logging.INFO)
 import commons
 import utils
 from data_utils import (
@@ -78,7 +80,7 @@ def run(rank, n_gpus, hps):
 
     if rank == 0:
         eval_dataset = TextAudioSpeakerLoader(hps.data.validation_files, hps.data)
-        eval_loader = DataLoader(eval_dataset, num_workers=8, shuffle=False,
+        eval_loader = DataLoader(eval_dataset, num_workers=1, shuffle=False,
                                  batch_size=1, pin_memory=True,
                                  drop_last=False, collate_fn=collate_fn)
 
@@ -303,7 +305,8 @@ def evaluate(hps, generator, eval_loader, writer_eval):
                 wav_lengths = wav_lengths[:1]
                 # break
                 y_hat, mask, xx, pred_f0 = generator.module.infer(phonemes, phonemes_lengths,
-                                                         max_len=1000, sid=sid,shift=shift,energy_control=energy_shift,pitch_control=f0,manual_f0=frame_f0, manual_duration=phndur)
+                                                                sid=sid,
+                                                                  phone_f0=notepitch, frame_f0=frame_f0, duration=phndur)
                 y_hat_lengths = mask.sum([1, 2]).long() * hps.data.hop_length
 
                 mel = spec_to_mel_torch(

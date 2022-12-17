@@ -254,11 +254,11 @@ manual_f0 = torch.FloatTensor(f0).unsqueeze(0)
 manual_dur = torch.LongTensor(durations).unsqueeze(0)
 
 result = net_g.infer(x_tst, x_tst_lengths, noise_scale=.667, noise_scale_w=0.8, sid=spk,
-                                length_scale=1,pitch_control=pitch,manual_duration=manual_dur, manual_f0=None)
+                     length_scale=1, phone_f0=pitch, manual_duration=manual_dur, frame_f0=None)
 audio = result[0][0, 0].data.float().numpy()
 soundfile.write("samples/singnof0.wav", audio, 44100)
 
 result = net_g.infer(x_tst, x_tst_lengths, noise_scale=.667, noise_scale_w=0.8, sid=spk,
-                                length_scale=1,pitch_control=pitch,manual_duration=manual_dur, manual_f0=f0)
+                     length_scale=1, phone_f0=pitch, manual_duration=manual_dur, frame_f0=f0)
 audio = result[0][0, 0].data.float().numpy()
 soundfile.write("samples/singf0.wav", audio, 44100)
