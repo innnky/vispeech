@@ -306,7 +306,7 @@ def evaluate(hps, generator, eval_loader, writer_eval):
                 # break
                 y_hat, mask, xx, pred_f0 = generator.module.infer(phonemes, phonemes_lengths,
                                                                 sid=sid,
-                                                                  phone_f0=notepitch, frame_f0=frame_f0, duration=phndur)
+                                                                  phone_f0=notepitch, frame_f0=frame_f0*shift, duration=phndur)
                 y_hat_lengths = mask.sum([1, 2]).long() * hps.data.hop_length
 
                 mel = spec_to_mel_torch(
