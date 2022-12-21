@@ -6,7 +6,7 @@ import librosa
 import numpy as np
 import parselmouth
 from scipy.interpolate import interp1d
-from pyworld import pyworld
+
 from preprocess.config import spk
 
 def stft(y):
@@ -31,28 +31,6 @@ def get_energy(path, p_len=None):
     assert e.shape[0] -p_len <2 ,(e.shape[0] ,p_len)
     e = e[: p_len]
     return e
-
-def resize2d(x, target_len):
-    source = np.array(x)
-    source[source<0.001] = np.nan
-    target = np.interp(np.arange(0, len(source)*target_len, len(source))/ target_len, np.arange(0, len(source)), source)
-    res = np.nan_to_num(target)
-    return res
-
-def compute_f0(path, c_len):
-    x, sr = librosa.load(path, sr=44100)
-    f0, t = pyworld.dio(
-        x.astype(np.double),
-        fs=sr,
-        f0_ceil=800,
-        frame_period=1000 * 512 / sr,
-    )
-    f0 = pyworld.stonemask(x.astype(np.double), f0, t, 44100)
-    for index, pitch in enumerate(f0):
-        f0[index] = round(pitch, 1)
-    assert abs(c_len - x.shape[0]//512) < 3, (c_len, f0.shape)
-
-    return resize2d(f0, c_len)
 
 
 def get_pitch(path,lll):
@@ -81,6 +59,7 @@ def get_pitch(path,lll):
     f0 = np.pad(f0, [[lpad, rpad]], mode="constant")
 
     return f0
+
 iii = 0
 with open(f"preprocess/temp/{spk}.txt" ,"w") as outfile:
     for line in open(f"preprocess/temp/{spk}.dur").readlines():
@@ -92,29 +71,46 @@ with open(f"preprocess/temp/{spk}.txt" ,"w") as outfile:
         phones = phones.split(" ")
 
         durations = [int(i) for i in durations.split(" ")]
-        pitch = compute_f0(wav_path, sum(durations))
-
-        np.save(target_path+".f0.npy", pitch)
-        nonzero_ids = np.where(pitch != 0)[0]
         try:
-            interp_fn = interp1d(
-                nonzero_ids,
-                pitch[nonzero_ids],
-                fill_value=(pitch[nonzero_ids[0]], pitch[nonzero_ids[-1]]),
-                bounds_error=False,
-            )
+            pitch = get_pitch(wav_path, sum(durations))
         except:
             continue
-        pitch = interp_fn(np.arange(0, len(pitch)))
+        # np.save(target_path+".f0.npy", pitch)
+        # nonzero_ids = np.where(pitch != 0)[0]
+        # try:
+        #     interp_fn = interp1d(
+        #         nonzero_ids,
+        #         pitch[nonzero_ids],
+        #         fill_value=(pitch[nonzero_ids[0]], pitch[nonzero_ids[-1]]),
+        #         bounds_error=False,
+        #     )
+        # except:
+        #     continue
+        # pitch = interp_fn(np.arange(0, len(pitch)))
+        # pos = 0
+        # for i, d in enumerate(durations):
+        #     if d > 0:
+        #         pitch[i] = np.mean(pitch[pos: pos + d])
+        #     else:
+        #         pitch[i] = 0
+        #     pos += d
+        # pitch = pitch[: len(durations)]
+
+        def get_avg(x):
+            if len(x[x != 0]) == 0:
+                return 0
+            else:
+                return np.average(x[x != 0])
+
+        phf0 = []
         pos = 0
         for i, d in enumerate(durations):
-            if d > 0:
-                pitch[i] = np.mean(pitch[pos: pos + d])
+            if phones[i] in ['sp','sil']:
+                phf0.append(0)
             else:
-                pitch[i] = 0
+                phf0.append(get_avg(pitch[pos:pos+d]))
             pos += d
-        pitch = pitch[: len(durations)]
-
+        pitch = np.array(phf0)
 
         nphf0 = " ".join(['{:.3f}'.format(i) for i in pitch])
 
@@ -128,7 +124,7 @@ with open(f"preprocess/temp/{spk}.txt" ,"w") as outfile:
             pos += d
         energy = energy[: len(durations)]
         phenergy = " ".join(['{:.3f}'.format(i) for i in energy])
-        print(3)
+
         nphones = " ".join(phones)
         ndurations = " ".join([str(i) for i in durations])
         shutil.move(wav_path, target_path)
