@@ -8,6 +8,7 @@
 + 删除了 Monotonoic Alignment， 使用MFA对齐后输入时长
 + 添加了音素级 F0Predictor
 + 添加了FramePriorNetwork
++ 使用飞桨paddlespeech作为中文文本前端，实现更可靠的文本正则化以及G2P
 ## 参考
 + [Period VITS](https://arxiv.org/pdf/2210.15964.pdf) 
 + [VISinger](https://github.com/So-Fann/VISinger) 
