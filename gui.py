@@ -25,7 +25,7 @@ from models import SynthesizerTrn
 from text import text_to_phones, cleaned_text_to_sequence, symbols
 from pydub.playback import play
 
-hps = utils.get_hparams_from_file("configs/ms.json")
+hps = utils.get_hparams_from_file("configs/new.json")
 net_g = SynthesizerTrn(
   len(symbols),
   hps.data.filter_length // 2 + 1,
@@ -37,7 +37,7 @@ net_g = SynthesizerTrn(
 
 _ = net_g.eval()
 
-_ = utils.load_checkpoint("/Volumes/Extend/下载/model(5).pth", net_g, None)
+_ = utils.load_checkpoint("/Volumes/Extend/下载/G_360000.pth", net_g, None)
 
 
 
@@ -80,7 +80,7 @@ class Ui_MainWindow(object):
 
 
     def infer(self):
-        threshold = 260
+        threshold = 0
         pitch_control = self.scrollArea_2.get_elements_values()
         self.scrollArea_2.clear_elements()
         if len(pitch_control) >0:

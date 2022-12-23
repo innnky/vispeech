@@ -8,8 +8,6 @@ from collections import OrderedDict
 from typing import Optional
 import torch.nn.functional as F
 
-import utils
-
 
 class Conv(nn.Module):
     """
@@ -134,7 +132,6 @@ class EnergyPredictor(nn.Module):
         return norm_energy * self.std + self.mean
 
     def forward(self, encoder_output, energy, g):
-        encoder_output = torch.detach(encoder_output)
         g = torch.detach(g)
         encoder_output = encoder_output + self.cond(g)
 
@@ -156,50 +153,6 @@ class EnergyPredictor(nn.Module):
         pred_energy = self.denormalize(pred_norm_energy) * control
         embedding = self.energy_embedding(torch.bucketize(self.normalize(pred_energy), self.energy_bins)).transpose(1, 2)
         return embedding
-
-class FramePitchPredictor(nn.Module):
-    def __init__(self, input_size, gin_channels, pitch_mean, pitch_std):
-        super(FramePitchPredictor, self).__init__()
-        self.mean = pitch_mean
-        self.std = pitch_std
-        self.predictor = VariancePredictor(input_size)
-
-        self.pitch_embedding = nn.Embedding(
-            256, input_size
-        )
-        if gin_channels != 0:
-            self.cond = nn.Conv1d(gin_channels, input_size, 1)
-
-    def normalize(self, energy):
-        return (energy - self.mean) / self.std
-
-    def denormalize(self, norm_pitch):
-        return norm_pitch * self.std + self.mean
-
-    def forward(self, encoder_output, frame_f0, g):
-        encoder_output = torch.detach(encoder_output)
-        g = torch.detach(g)
-        encoder_output = encoder_output + self.cond(g)
-
-        pred_norm_pitch = self.predictor(encoder_output)
-        norm_pitch = self.normalize(frame_f0)
-        embedding = self.pitch_embedding(utils.f0_to_coarse(frame_f0)).transpose(1, 2)
-        l_pitch = F.mse_loss(norm_pitch, pred_norm_pitch)
-        return pred_norm_pitch,norm_pitch, embedding,l_pitch
-
-    def infer(self, encoder_output, g, control=None):
-        g = torch.detach(g)
-        encoder_output = encoder_output + self.cond(g)
-
-        pred_norm_pitch = self.predictor(encoder_output)
-
-        if control is None:
-            control = 1
-        pred_pitch = self.denormalize(pred_norm_pitch)
-        pred_pitch[pred_pitch<50] = 0
-        pred_pitch = pred_pitch * control
-        embedding = self.pitch_embedding(utils.f0_to_coarse(pred_pitch)).transpose(1, 2)
-        return embedding, pred_pitch
 
 class Swish(nn.Module):
     """
