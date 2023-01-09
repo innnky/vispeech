@@ -17,7 +17,7 @@ def get_text(text):
     text_norm = text_to_sequence(text+"。")
     text_norm = torch.LongTensor(text_norm)
     return text_norm
-hps = utils.get_hparams_from_file("configs/ms.json")
+hps = utils.get_hparams_from_file("configs/new.json")
 net_g = SynthesizerTrn(
   len(symbols),
   hps.data.filter_length // 2 + 1,
@@ -29,7 +29,7 @@ net_g = SynthesizerTrn(
 
 _ = net_g.eval()
 
-_ = utils.load_checkpoint("/Volumes/Extend/下载/temp.pth", net_g, None)
+_ = utils.load_checkpoint("/Volumes/Extend/下载/G_385200.pth", net_g, None)
 import time
 import numpy as np
 def tts(txt):

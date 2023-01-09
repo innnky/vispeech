@@ -685,7 +685,7 @@ class SynthesizerTrn(nn.Module):
         pe[:, :, 0::2] = torch.sin(position * div_term)
         pe[:, :, 1::2] = torch.cos(position * div_term)
         pe = pe.transpose(1, 2).to(x_frame.device)
-        x_frame = x_frame + pe
+        # x_frame = x_frame + pe
 
         # 帧优先级网络
         x_frame = self.frame_prior_net(x_frame, x_mask)
@@ -739,7 +739,7 @@ class SynthesizerTrn(nn.Module):
         pe[:, :, 0::2] = torch.sin(position * div_term)
         pe[:, :, 1::2] = torch.cos(position * div_term)
         pe = pe.transpose(1, 2).to(x_frame.device)
-        x_frame = x_frame + pe
+        # x_frame = x_frame + pe
 
         x_frame = self.frame_prior_net(x_frame, x_mask)
         x_frame = x_frame.transpose(1, 2)

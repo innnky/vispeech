@@ -37,7 +37,7 @@ net_g = SynthesizerTrn(
 
 _ = net_g.eval()
 
-_ = utils.load_checkpoint("/Volumes/Extend/下载/G_360000.pth", net_g, None)
+_ = utils.load_checkpoint("ckpts/G_475200.pth", net_g, None)
 
 
 
@@ -95,7 +95,7 @@ class Ui_MainWindow(object):
         with torch.no_grad():
             x_tst = text_norm.unsqueeze(0)
             x_tst_lengths = torch.LongTensor([text_norm.size(0)])
-            spk = torch.LongTensor([100])
+            spk = torch.LongTensor([1])
             result = net_g.infer(x_tst, x_tst_lengths, noise_scale=.667, noise_scale_w=0.8, sid=spk,
                                 length_scale=1,pitch_control=pitch_control)
             audio = result[0][0, 0].data.float().numpy()

@@ -40,11 +40,19 @@ def get_chinese_phonemes(text):
         pass
     return res
 
+def del_special_pu(data):
+    ret = []
+    to_del = ["'", "\"", "“","", '‘', "’", "”"]
+    for i in data:
+        if i not in to_del:
+            ret.append(i)
+    return ret
 
 
 def preprocess_chinese(text):
 
     text = pu_symbol_replace(text)
+    text = del_special_pu(text)
     phonemes = []
     seg = ""
     for ch in text:
@@ -56,11 +64,12 @@ def preprocess_chinese(text):
             seg+=ch
     phonemes+=get_chinese_phonemes(seg)
 
-    for i in range(len(phonemes)):
-        if phonemes[i] not in symbols+pu_symbols:
-            phonemes[i] = "sp"
+    new_phonemes = []
+    for i in phonemes:
+        if i in symbols:
+            new_phonemes.append(i)
 
-    return phonemes
+    return new_phonemes
 
 
 def read_lexicon(lex_path):
@@ -94,7 +103,7 @@ def preprocess_english(text):
 
     phones = phones.split(" ")
 
-    return phones
+    return []
 
 def cleaned_text_to_sequence(cleaned_text):
   '''Converts a string of text to a sequence of IDs corresponding to the symbols in the text.
