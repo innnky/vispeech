@@ -4,7 +4,7 @@ import os
 import pathlib
 import shutil
 from preprocess.config import spk, transcription_path
-# from paddlespeech.t2s.frontend.zh_frontend import Frontend
+# from text.frontend.zh_frontend import Frontend
 
 # frontend = Frontend()
 from text import preprocess_chinese
