@@ -5,10 +5,23 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-import commons
-import modules
-from modules import LayerNorm
-   
+import modules.commons as commons
+
+
+class LayerNorm(nn.Module):
+  def __init__(self, channels, eps=1e-5):
+    super().__init__()
+    self.channels = channels
+    self.eps = eps
+
+    self.gamma = nn.Parameter(torch.ones(channels))
+    self.beta = nn.Parameter(torch.zeros(channels))
+
+  def forward(self, x):
+    x = x.transpose(1, -1)
+    x = F.layer_norm(x, (self.channels,), self.gamma, self.beta, self.eps)
+    return x.transpose(1, -1)
+
 
 class Encoder(nn.Module):
   def __init__(self, hidden_channels, filter_channels, n_heads, n_layers, kernel_size=1, p_dropout=0., window_size=4, **kwargs):
@@ -45,7 +58,6 @@ class Encoder(nn.Module):
       x = self.norm_layers_2[i](x + y)
     x = x * x_mask
     return x
-
 
 class Decoder(nn.Module):
   def __init__(self, hidden_channels, filter_channels, n_heads, n_layers, kernel_size=1, p_dropout=0., proximal_bias=False, proximal_init=True, **kwargs):
@@ -97,6 +109,88 @@ class Decoder(nn.Module):
     x = x * x_mask
     return x
 
+class FFT(nn.Module):
+  def __init__(self, hidden_channels, filter_channels, n_heads, n_layers=1, kernel_size=1, p_dropout=0., proximal_bias=False, proximal_init=True, **kwargs):
+    super().__init__()
+    self.hidden_channels = hidden_channels
+    self.filter_channels = filter_channels
+    self.n_heads = n_heads
+    self.n_layers = n_layers
+    self.kernel_size = kernel_size
+    self.p_dropout = p_dropout
+    self.proximal_bias = proximal_bias
+    self.proximal_init = proximal_init
+
+    self.drop = nn.Dropout(p_dropout)
+    self.self_attn_layers = nn.ModuleList()
+    self.norm_layers_0 = nn.ModuleList()
+    self.ffn_layers = nn.ModuleList()
+    self.norm_layers_1 = nn.ModuleList()
+    for i in range(self.n_layers):
+      self.self_attn_layers.append(MultiHeadAttention(hidden_channels, hidden_channels, n_heads, p_dropout=p_dropout, proximal_bias=proximal_bias, proximal_init=proximal_init))
+      self.norm_layers_0.append(LayerNorm(hidden_channels))
+      self.ffn_layers.append(FFN(hidden_channels, hidden_channels, filter_channels, kernel_size, p_dropout=p_dropout, causal=True))
+      self.norm_layers_1.append(LayerNorm(hidden_channels))
+
+  def forward(self, x, x_mask):
+    """
+    x: decoder input
+    h: encoder output
+    """
+    self_attn_mask = commons.subsequent_mask(x_mask.size(2)).to(device=x.device, dtype=x.dtype)
+    x = x * x_mask
+    for i in range(self.n_layers):
+      y = self.self_attn_layers[i](x, x, self_attn_mask)
+      y = self.drop(y)
+      x = self.norm_layers_0[i](x + y)
+      
+      y = self.ffn_layers[i](x, x_mask)
+      y = self.drop(y)
+      x = self.norm_layers_1[i](x + y) 
+    x = x * x_mask
+    return x
+
+
+class FFNs(nn.Module):
+  def __init__(self, hidden_channels, filter_channels, n_heads, n_layers=1, kernel_size=1, p_dropout=0., proximal_bias=False, proximal_init=True, **kwargs):
+    super().__init__()
+    self.hidden_channels = hidden_channels
+    self.filter_channels = filter_channels
+    self.n_heads = n_heads
+    self.n_layers = n_layers
+    self.kernel_size = kernel_size
+    self.p_dropout = p_dropout
+    self.proximal_bias = proximal_bias
+    self.proximal_init = proximal_init
+
+    self.drop = nn.Dropout(p_dropout)
+    #self.self_attn_layers = nn.ModuleList()
+    #self.norm_layers_0 = nn.ModuleList()
+    self.ffn_layers = nn.ModuleList()
+    self.norm_layers_1 = nn.ModuleList()
+    for i in range(self.n_layers):
+      #self.self_attn_layers.append(MultiHeadAttention(hidden_channels, hidden_channels, n_heads, p_dropout=p_dropout, proximal_bias=proximal_bias, proximal_init=proximal_init))
+      #self.norm_layers_0.append(LayerNorm(hidden_channels))
+      self.ffn_layers.append(FFN(hidden_channels, hidden_channels, filter_channels, kernel_size, p_dropout=p_dropout, causal=True))
+      self.norm_layers_1.append(LayerNorm(hidden_channels))
+
+  def forward(self, x, x_mask):
+    """
+    x: decoder input
+    h: encoder output
+    """
+    self_attn_mask = commons.subsequent_mask(x_mask.size(2)).to(device=x.device, dtype=x.dtype)
+    x = x * x_mask
+    for i in range(self.n_layers):
+      #y = self.self_attn_layers[i](x, x, self_attn_mask)
+      #y = self.drop(y)
+      #x = self.norm_layers_0[i](x + y)
+      
+      y = self.ffn_layers[i](x, x_mask)
+      y = self.drop(y)
+      x = self.norm_layers_1[i](x + y) 
+    x = x * x_mask
+    return x
 
 class MultiHeadAttention(nn.Module):
   def __init__(self, channels, out_channels, n_heads, p_dropout=0., window_size=None, heads_share=True, block_length=None, proximal_bias=False, proximal_init=False):

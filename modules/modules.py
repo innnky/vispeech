@@ -5,13 +5,16 @@ import scipy
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.autograd import Function
+from typing import Any, Optional, Tuple
 
 from torch.nn import Conv1d, ConvTranspose1d, AvgPool1d, Conv2d
 from torch.nn.utils import weight_norm, remove_weight_norm
 
-import commons
-from commons import init_weights, get_padding
-from transforms import piecewise_rational_quadratic_transform
+import modules.commons as commons
+import modules.attentions as attentions
+from modules.commons import init_weights, get_padding
+from modules.transforms import piecewise_rational_quadratic_transform
 
 
 LRELU_SLOPE = 0.1
@@ -109,22 +112,23 @@ class DDSConv(nn.Module):
 
 
 class WN(torch.nn.Module):
-  def __init__(self, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels=0, p_dropout=0):
+  def __init__(self, hidden_channels, kernel_size, dilation_rate, n_layers, n_speakers=0, spk_channels=0, p_dropout=0):
     super(WN, self).__init__()
     assert(kernel_size % 2 == 1)
     self.hidden_channels =hidden_channels
     self.kernel_size = kernel_size,
     self.dilation_rate = dilation_rate
     self.n_layers = n_layers
-    self.gin_channels = gin_channels
+    self.n_speakers = n_speakers
+    self.spk_channels = spk_channels
     self.p_dropout = p_dropout
 
     self.in_layers = torch.nn.ModuleList()
     self.res_skip_layers = torch.nn.ModuleList()
     self.drop = nn.Dropout(p_dropout)
 
-    if gin_channels != 0:
-      cond_layer = torch.nn.Conv1d(gin_channels, 2*hidden_channels*n_layers, 1)
+    if n_speakers > 0:
+      cond_layer = torch.nn.Conv1d(spk_channels, 2*hidden_channels*n_layers, 1)
       self.cond_layer = torch.nn.utils.weight_norm(cond_layer, name='weight')
 
     for i in range(n_layers):
@@ -176,7 +180,7 @@ class WN(torch.nn.Module):
     return output * x_mask
 
   def remove_weight_norm(self):
-    if self.gin_channels != 0:
+    if self.n_speakers > 0:
       torch.nn.utils.remove_weight_norm(self.cond_layer)
     for l in self.in_layers:
       torch.nn.utils.remove_weight_norm(l)
@@ -303,7 +307,8 @@ class ResidualCouplingLayer(nn.Module):
       dilation_rate,
       n_layers,
       p_dropout=0,
-      gin_channels=0,
+      n_speakers=0,
+      spk_channels=0,
       mean_only=False):
     assert channels % 2 == 0, "channels should be divisible by 2"
     super().__init__()
@@ -316,7 +321,7 @@ class ResidualCouplingLayer(nn.Module):
     self.mean_only = mean_only
 
     self.pre = nn.Conv1d(self.half_channels, hidden_channels, 1)
-    self.enc = WN(hidden_channels, kernel_size, dilation_rate, n_layers, p_dropout=p_dropout, gin_channels=gin_channels)
+    self.enc = WN(hidden_channels, kernel_size, dilation_rate, n_layers, p_dropout=p_dropout, n_speakers=n_speakers, spk_channels=spk_channels)
     self.post = nn.Conv1d(hidden_channels, self.half_channels * (2 - mean_only), 1)
     self.post.weight.data.zero_()
     self.post.bias.data.zero_()
@@ -341,6 +346,39 @@ class ResidualCouplingLayer(nn.Module):
       x1 = (x1 - m) * torch.exp(-logs) * x_mask
       x = torch.cat([x0, x1], 1)
       return x
+
+class ResidualCouplingBlock(nn.Module):
+  def __init__(self,
+      channels,
+      hidden_channels,
+      kernel_size,
+      dilation_rate,
+      n_layers,
+      n_flows=4,
+      n_speakers=0,
+      gin_channels=0):
+    super().__init__()
+    self.channels = channels
+    self.hidden_channels = hidden_channels
+    self.kernel_size = kernel_size
+    self.dilation_rate = dilation_rate
+    self.n_layers = n_layers
+    self.n_flows = n_flows
+    self.gin_channels = gin_channels
+
+    self.flows = nn.ModuleList()
+    for i in range(n_flows):
+      self.flows.append(ResidualCouplingLayer(channels, hidden_channels, kernel_size, dilation_rate, n_layers, n_speakers=n_speakers, spk_channels=gin_channels, mean_only=True))
+      self.flows.append(Flip())
+
+  def forward(self, x, x_mask, g=None, reverse=False):
+    if not reverse:
+      for flow in self.flows:
+        x, _ = flow(x, x_mask, g=g, reverse=reverse)
+    else:
+      for flow in reversed(self.flows):
+        x = flow(x, x_mask, g=g, reverse=reverse)
+    return x
 
 
 class ConvFlow(nn.Module):
@@ -388,3 +426,183 @@ class ConvFlow(nn.Module):
         return x, logdet
     else:
         return x
+
+
+class ResStack(nn.Module):
+  def __init__(self, channel, kernel_size=3, base=3, nums=4):
+    super(ResStack, self).__init__()
+
+    self.layers = nn.ModuleList([
+      nn.Sequential(
+          nn.LeakyReLU(),
+          nn.utils.weight_norm(nn.Conv1d(channel, channel,
+              kernel_size=kernel_size, dilation=base**i, padding=base**i)),
+          nn.LeakyReLU(),
+          nn.utils.weight_norm(nn.Conv1d(channel, channel,
+              kernel_size=kernel_size, dilation=1, padding=1)),
+      )
+      for i in range(nums)
+    ])
+
+  def forward(self, x):
+    for layer in self.layers:
+      x = x + layer(x)
+    return x
+
+
+class ConvNorm(nn.Module):
+    """ 1D Convolution """
+
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size=1,
+        stride=1,
+        padding=None,
+        dilation=1,
+        bias=True,
+        w_init_gain="linear",
+        transpose=False,
+    ):
+        super(ConvNorm, self).__init__()
+
+        if padding is None:
+            assert kernel_size % 2 == 1
+            padding = int(dilation * (kernel_size - 1) / 2)
+
+        self.conv = nn.Conv1d(
+            in_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            bias=bias,
+        )
+        self.transpose = transpose
+
+    def forward(self, x):
+        if self.transpose:
+            x = x.contiguous().transpose(1, 2)
+        x = self.conv(x)
+        if self.transpose:
+            x = x.contiguous().transpose(1, 2)
+
+        return x
+
+
+class LinearNorm(nn.Module):
+    """ LinearNorm Projection """
+
+    def __init__(self, in_features, out_features, bias=False):
+        super(LinearNorm, self).__init__()
+        self.linear = nn.Linear(in_features, out_features, bias)
+
+        nn.init.xavier_uniform_(self.linear.weight)
+        if bias:
+            nn.init.constant_(self.linear.bias, 0.0)
+
+    def forward(self, x):
+        x = self.linear(x)
+        return x
+
+
+class AlignmentEncoder(torch.nn.Module):
+    """ Alignment Encoder for Unsupervised Duration Modeling """
+
+    def __init__(self,
+                n_mel_channels,
+                n_att_channels,
+                n_text_channels,
+                temperature,
+                multi_speaker):
+        super().__init__()
+        self.temperature = temperature
+        self.softmax = torch.nn.Softmax(dim=3)
+        self.log_softmax = torch.nn.LogSoftmax(dim=3)
+
+        self.key_proj = nn.Sequential(
+            ConvNorm(
+                n_text_channels,
+                n_text_channels * 2,
+                kernel_size=3,
+                bias=True,
+                w_init_gain='relu'
+            ),
+            torch.nn.ReLU(),
+            ConvNorm(
+                n_text_channels * 2,
+                n_att_channels,
+                kernel_size=1,
+                bias=True,
+            ),
+        )
+
+        self.query_proj = nn.Sequential(
+            ConvNorm(
+                n_mel_channels,
+                n_mel_channels * 2,
+                kernel_size=3,
+                bias=True,
+                w_init_gain='relu',
+            ),
+            torch.nn.ReLU(),
+            ConvNorm(
+                n_mel_channels * 2,
+                n_mel_channels,
+                kernel_size=1,
+                bias=True,
+            ),
+            torch.nn.ReLU(),
+            ConvNorm(
+                n_mel_channels,
+                n_att_channels,
+                kernel_size=1,
+                bias=True,
+            ),
+        )
+
+        if multi_speaker:
+            self.key_spk_proj = LinearNorm(192, n_text_channels)
+            self.query_spk_proj = LinearNorm(192, n_mel_channels)
+
+    def forward(self, queries, keys, mask=None, attn_prior=None, speaker_embed=None):
+        """Forward pass of the aligner encoder.
+        Args:
+            queries (torch.tensor): B x C x T1 tensor (probably going to be mel data).
+            keys (torch.tensor): B x C2 x T2 tensor (text data).
+            mask (torch.tensor): uint8 binary mask for variable length entries (should be in the T2 domain).
+            attn_prior (torch.tensor): prior for attention matrix.
+            speaker_embed (torch.tensor): B x C tnesor of speaker embedding for multi-speaker scheme.
+        Output:
+            attn (torch.tensor): B x 1 x T1 x T2 attention mask. Final dim T2 should sum to 1.
+            attn_logprob (torch.tensor): B x 1 x T1 x T2 log-prob attention mask.
+        """
+        if speaker_embed is not None:
+            keys = keys + self.key_spk_proj(speaker_embed.unsqueeze(1).expand(
+                -1, keys.shape[-1], -1
+            )).transpose(1, 2)
+            queries = queries + self.query_spk_proj(speaker_embed.unsqueeze(1).expand(
+                -1, queries.shape[-1], -1
+            )).transpose(1, 2)
+        keys_enc = self.key_proj(keys)  # B x n_attn_dims x T2
+        queries_enc = self.query_proj(queries)
+
+        # Simplistic Gaussian Isotopic Attention
+        attn = (queries_enc[:, :, :, None] - keys_enc[:, :, None]) ** 2  # B x n_attn_dims x T1 x T2
+        attn = -self.temperature * attn.sum(1, keepdim=True)
+
+        if attn_prior is not None:
+            #print(f"AlignmentEncoder \t| mel: {queries.shape} phone: {keys.shape} mask: {mask.shape} attn: {attn.shape} attn_prior: {attn_prior.shape}")
+            attn = self.log_softmax(attn) + torch.log(attn_prior[:, None] + 1e-8)
+            #print(f"AlignmentEncoder \t| After prior sum attn: {attn.shape}")
+
+        attn_logprob = attn.clone()
+        # mask = mask.byte()
+
+        if mask is not None:
+            attn.data.masked_fill_(mask.permute(0, 2, 1).unsqueeze(2), -float("inf"))
+
+        attn = self.softmax(attn)  # softmax along T2
+        return attn, attn_logprob
