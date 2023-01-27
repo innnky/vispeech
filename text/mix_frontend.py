@@ -1,15 +1,27 @@
-""" from https://github.com/keithito/tacotron """
-import unicodedata
-# try:
-from text.frontend.zh_frontend import Frontend
-print(8)
-frontend = Frontend()
-from g2p_en import G2p
-# except:
-#     print("failed to import text frontend")
-from text.symbols import symbols
-
 import re
+
+from text.en_frontend import en_to_phonemes
+from text.ja_frontend import ja_to_phonemes
+from text.zh_frontend import zh_to_phonemes
+
+_japanese_characters = re.compile(
+    r'[\u3005\u3040-\u30ff\u4e00-\u9fff\uff11-\uff19\uff21-\uff3a\uff41-\uff5a\uff66-\uff9d]')
+
+def others_to_phonemes(text):
+    # print(text)
+    if text == '':
+        return []
+    segs = mf.get_segment(text)
+    phones = []
+    for seg in segs:
+        if seg[1] in ["zh","other"]:
+            phones += zh_to_phonemes(seg[0])
+        elif seg[1] == "en":
+            phones += en_to_phonemes(seg[0])
+        elif seg[1] == "ja":
+            phones += ja_to_phonemes(seg[0])
+    return phones
+
 from string import punctuation
 pu_symbols = ['!', '?', '…', ",", "."]
 
@@ -31,80 +43,6 @@ def pu_symbol_replace(data):
             data = data.replace(chinaTab[index], englishTab[index])
     return data
 
-def get_chinese_phonemes(text):
-    res = []
-    try:
-        text = text.replace("嗯", "恩")
-        res += frontend.get_phonemes(text)[0]
-    except:
-        pass
-    return res
-
-def del_special_pu(data):
-    ret = []
-    to_del = ["'", "\"", "“","", '‘', "’", "”"]
-    for i in data:
-        if i not in to_del:
-            ret.append(i)
-    return ret
-
-
-def preprocess_chinese(text):
-
-    text = pu_symbol_replace(text)
-    text = del_special_pu(text)
-    phonemes = []
-    seg = ""
-    for ch in text:
-        if ch in pu_symbols:
-            phonemes += get_chinese_phonemes(seg)
-            seg = ""
-            phonemes.append(ch)
-        else:
-            seg+=ch
-    phonemes+=get_chinese_phonemes(seg)
-
-    new_phonemes = []
-    for i in phonemes:
-        if i in symbols:
-            new_phonemes.append(i)
-
-    return new_phonemes
-
-
-def read_lexicon(lex_path):
-    lexicon = {}
-    with open(lex_path) as f:
-        for line in f:
-            temp = re.split(r"\s+", line.strip("\n"))
-            word = temp[0]
-            phones = temp[1:]
-            if word.lower() not in lexicon:
-                lexicon[word.lower()] = phones
-    return lexicon
-lexicon = read_lexicon("text/en_dict.dict")
-
-def preprocess_english(text):
-    text = text.rstrip(punctuation)
-
-    g2p = G2p()
-    phones = []
-    words = re.split(r"([,;.\-\?\!\s+])", text)
-    for w in words:
-        if w.lower() in lexicon:
-            phones += lexicon[w.lower()]
-        else:
-            for ch in w:
-                if ch != " ":
-                    phones += g2p(ch)
-    phones = "}{".join(phones)
-    phones = re.sub(r"\{[^\w\s]?\}", "{sil}", phones)
-    phones = phones.replace("}{", " ")
-
-    phones = phones.split(" ")
-
-    return []
-
 
 
 # from paddle speech https://github.com/PaddlePaddle/PaddleSpeech/blob/develop/paddlespeech/t2s/frontend/mix_frontend.py
@@ -122,6 +60,9 @@ class MixFrontend:
             return True
         else:
             return False
+
+    def is_japanese(self, char):
+        return re.match(_japanese_characters, char)
 
     def is_other(self, char):
         if not (self.is_chinese(char) or self.is_alphabet(char)):
@@ -144,6 +85,8 @@ class MixFrontend:
                 types.append("zh")
             elif self.is_alphabet(ch):
                 types.append("en")
+            elif self.is_japanese(ch):
+                types.append("ja")
             else:
                 types.append("other")
 
@@ -181,6 +124,3 @@ class MixFrontend:
 
 mf = MixFrontend()
 
-
-
-    # print(preprocess_english("A b c d"))

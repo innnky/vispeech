@@ -39,7 +39,7 @@ class Frontend():
         self.text_normalizer = TextNormalizer()
         print("t3")
 
-        self.punc = "：，；。？！“”‘’':,;.?!"
+        self.punc = ['!', '?', '…', ",", "."]
         # g2p_model can be pypinyin and g2pM
         self.g2p_model = g2p_model
         print("t4")
@@ -159,10 +159,8 @@ class Frontend():
             for c, v in zip(initials, finals):
                 # NOTE: post process for pypinyin outputs
                 # we discriminate i, ii and iii
-                if c and c not in self.punc:
+                if c:
                     phones.append(c)
-                if c and c in self.punc:
-                    phones.append('sp')
                 if v and v not in self.punc:
                     phones.append(v)
 
@@ -263,6 +261,7 @@ class Frontend():
                      with_erhua: bool=True,
                      robot: bool=False,
                      print_info: bool=False) -> List[List[str]]:
+        sentence = sentence.replace("嗯", "恩")
         sentences = self.text_normalizer.normalize(sentence)
         phonemes = self._g2p(
             sentences, merge_sentences=merge_sentences, with_erhua=with_erhua)
