@@ -34,7 +34,7 @@ from modules.losses import (
     feature_loss,
     kl_loss, ForwardSumLoss, BinLoss,
 )
-from preprocess.mel_processing import mel_spectrogram_torch, spec_to_mel_torch, spectrogram_torch
+from mel_processing import mel_spectrogram_torch, spec_to_mel_torch, spectrogram_torch
 
 torch.backends.cudnn.benchmark = True
 global_step = 0
@@ -215,7 +215,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, loaders, logg
             attn_prior = attn_prior.cuda(rank, non_blocking=True)
 
         # forward
-        y_hat, ids_slice, LF0, y_ddsp, kl_div, predict_mel, mask, attn_out = net_g(phone, phone_lengths, pitchid, dur, slur,
+        y_hat, ids_slice, LF0, y_ddsp, kl_div, predict_mel, mask, attn_out, loss_f0, loss_dur = net_g(phone, phone_lengths, pitchid, dur, slur,
                                                                          gtdur, f0, mel, mel_lengths, spk_id=spkid,
                                                                          attn_prior=attn_prior, step=global_step)
         y_ddsp = y_ddsp.unsqueeze(1)
@@ -305,7 +305,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, loaders, logg
 
         loss_fm = loss_fm / 2
         loss_gen = loss_gen / 2
-        loss_gen_all = loss_gen + loss_fm + loss_mel + loss_mel_dsp + kl_div + loss_mel_am + loss_spec_dsp + ctc_loss + bin_loss
+        loss_gen_all = loss_gen + loss_fm + loss_mel + loss_mel_dsp + kl_div + loss_mel_am + loss_spec_dsp + ctc_loss + bin_loss +loss_f0 +loss_dur
 
         loss_gen_all = loss_gen_all / hps.train.accumulation_steps
 
@@ -341,7 +341,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, loaders, logg
                     ["Soft Attention", "Hard Attention", "Prior"]
                 )
                 image_dict = {
-                    f"img/attn": fig_attn,
+                    f"gen/attn": fig_attn,
                 }
                 scalar_dict = {"loss/total": loss_gen_all,
                                "loss/mel": loss_mel,
@@ -353,6 +353,8 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, loaders, logg
                                "loss/kl_div": kl_div,
                                "loss/ctc":ctc_loss,
                                "loss/bin":bin_loss,
+                               "loss/f0":loss_f0,
+                               "loss/dur":loss_dur,
                                "learning_rate": lr}
 
                 utils.summarize(
@@ -437,8 +439,8 @@ def evaluate(hps, generator, eval_loader, writer_eval):
             attn_prior = attn_prior[:1]
             mel_lengths = mel_lengths[:1]
 
-            y_hat, y_harm, y_noise = generator.module.infer(phone, phone_lengths, pitchid, dur, slur, gtdur=None, F0=f0,
-                                                            spk_id=spkid, mel=mel, bn_lengths=mel_lengths, attn_prior=attn_prior)
+            y_hat, y_harm, y_noise = generator.module.infer(phone, phone_lengths, pitchid, dur, slur, gtdur=None,
+                                                            spk_id=spkid)
             spec = spectrogram_torch(
                 wav.squeeze(1),
                 hps.data.n_fft,
@@ -472,7 +474,7 @@ def evaluate(hps, generator, eval_loader, writer_eval):
             })
             audio_dict.update( {
                 f"gen/audio_{batch_idx}": y_hat[0, :, :],
-                f"gen/harm_{batch_idx}": y_harm[0, :, :],
+                f"gen/harm": y_harm[0, :, :],
                 "gen/noise": y_noise[0, :, :]
             })
             # if global_step == 0:

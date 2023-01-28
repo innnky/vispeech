@@ -11,7 +11,7 @@ import torch
 
 sys.path.append('../..')
 from utils.audio import load_wav
-from text import npu
+from text import _symbol_to_id
 
 class BaseDataset(torch.utils.data.Dataset):
 
@@ -109,7 +109,7 @@ class SingDataset(BaseDataset):
         gtdurs = []
 
         for index in range(len(pho.split())):
-            phos.append(npu.symbol_converter.ttsing_phone_to_int[pho.strip().split()[index]])
+            phos.append(_symbol_to_id[pho.strip().split()[index]])
             pitchs.append(0)
             durs.append(0)
             slurs.append(0)
@@ -143,6 +143,9 @@ class SingDataset(BaseDataset):
         sum_dur = mel.shape[0]
         if mel.shape[0] <150:
             print("drop short audio:", self.fileid_list[index])
+            return None
+        if mel.shape[0] > 1000:
+            print("drop long audio:", self.fileid_list[index])
             return None
         assert mel.shape[1] == 80
         if(mel.shape[0] != sum_dur):
