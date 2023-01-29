@@ -83,7 +83,7 @@ def run(rank, n_gpus, hps):
     net_d = Discriminator(hps, hps.model.use_spectral_norm).cuda(rank)
 
     optim_g = torch.optim.AdamW(
-        net_g.parameters(),
+        filter(lambda p: p.requires_grad, net_g.parameters()),
         hps.train.learning_rate,
         betas=hps.train.betas,
         eps=hps.train.eps)

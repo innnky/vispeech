@@ -63,6 +63,7 @@
     "upsample_initial_channel": 256,
     "upsample_kernel_sizes": [16,16,8,4],
     "n_harmonic": 64,
-    "n_bands": 65
+    "n_bands": 65,
+    "finetune": false
   }
 }

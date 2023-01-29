@@ -864,6 +864,9 @@ class SynthesizerTrn(nn.Module):
             hps.model.prior_n_layers,
             hps.model.prior_kernel_size,
             hps.model.prior_p_dropout)
+        if hps.model.finetune:
+            for param in self.text_encoder.named_parameters():
+                param[1].requires_grad = False
 
         self.decoder = PriorDecoder(
             hps.model.hidden_channels * 2,
