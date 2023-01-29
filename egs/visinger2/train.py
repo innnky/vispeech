@@ -393,8 +393,6 @@ def evaluate(hps, generator, eval_loader, writer_eval):
     audio_dict = {}
     with torch.no_grad():
         for batch_idx, data_dict in enumerate(eval_loader):
-            if batch_idx == 4:
-                break
             phone = data_dict["phone"]
             pitchid = data_dict["pitchid"]
             dur = data_dict["dur"]

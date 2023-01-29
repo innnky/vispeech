@@ -1,5 +1,5 @@
 import os.path
-pu_symbols = ['!', '?', '…', ",", "."]
+pu_symbols = ['!', '?', '…', ",", ".", '-']
 ja_symbols = [
     # japanese-common
     'ts.', 'f.', 'sh.', 'ry.', 'py.', 'h.', 'p.', 'N.', 'a.', 'm.', 'w.', 'ky.',
@@ -23,4 +23,6 @@ def remove_invalid_phonemes(phonemes):
     for ph in phonemes:
         if ph in symbols:
             new_phones.append(ph)
+        else:
+            print("skip：", ph)
     return new_phones

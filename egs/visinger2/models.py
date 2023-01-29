@@ -999,7 +999,9 @@ class SynthesizerTrn(nn.Module):
         LF0 = LF0 / 500
 
         # aam
+        predict_lf0, predict_bn_mask = self.f0_decoder(decoder_input, bn_lengths, spk_emb=g)
         predict_mel, predict_bn_mask = self.mel_decoder(decoder_input + self.f0_prenet(LF0), bn_lengths, spk_emb=g)
+        loss_f0 = F.mse_loss(predict_lf0 * predict_bn_mask, LF0 * predict_bn_mask) * 10
 
         predict_energy = predict_mel.detach().sum(1).unsqueeze(1) / self.hps.data.acoustic_dim
 
@@ -1008,10 +1010,15 @@ class SynthesizerTrn(nn.Module):
                         self.energy_prenet(predict_energy) + \
                         self.mel_prenet(predict_mel.detach())
 
-        predict_lf0, predict_bn_mask = self.f0_decoder(decoder_input, bn_lengths, spk_emb=g)
         decoder_output, predict_bn_mask = self.decoder(decoder_input, bn_lengths, spk_emb=g)
 
-        loss_f0 = F.mse_loss(predict_lf0 * predict_bn_mask, LF0 * predict_bn_mask) * 10
+        # print(predict_lf0[0, :, :],LF0[0, :, :])
+        # F0_std = 500
+        # pred_f0 = predict_lf0 * F0_std
+        # pred_f0 = pred_f0 / 2595
+        # pred_f0 = torch.pow(10, pred_f0)
+        # pred_f0 = (pred_f0 - 1) * 700.
+        # print(pred_f0[0, :, :], F0[0, :, :])
 
         prior_info = decoder_output
         m_p = prior_info[:, :self.hps.model.hidden_channels, :]

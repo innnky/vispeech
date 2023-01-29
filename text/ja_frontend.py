@@ -84,7 +84,8 @@ def preprocess_jap(text):
         if re.match(_japanese_characters, sentence):
             if text != '':
                 text += ' '
-            text += pyopenjtalk.g2p(sentence) + " "
+            p = pyopenjtalk.g2p(sentence)
+            text += p + " "
 
         if i < len(marks):
             text += unidecode(marks[i]).replace(' ', '')
@@ -94,8 +95,9 @@ def preprocess_jap(text):
 def ja_to_phonemes(text):
     jap_phs = preprocess_jap(text)
     jap_phs = jap_phs.strip().split(" ")
-    jap_phs = [i+"." if i not in pu_symbols else i for i in jap_phs]
+    jap_phs = [i+"." if i not in pu_symbols+["pau"] else i for i in jap_phs]
     for i in jap_phs:
         if i not in symbols:
+            print(jap_phs)
             print("debug jap: missing ", i)
     return remove_invalid_phonemes(jap_phs)
