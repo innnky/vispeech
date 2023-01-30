@@ -143,7 +143,7 @@ class SingDataset(BaseDataset):
         spkid = self.spk2id[spk]
         mel = np.load(os.path.join(self.data_dir, spk, "mels", fileid + '.npy'))
         sum_dur = mel.shape[0]
-        if mel.shape[0] <150:
+        if mel.shape[0] <50:
             print("drop short audio:", self.fileid_list[index])
             return None
         if mel.shape[0] > 1000:
@@ -299,7 +299,7 @@ class SingCollate():
 
             attn_priors.append(row[9])
 
-        attn_priors = self.pad_3D(attn_priors, len(batch), max(phone_lengths*2), max(mel_lengths))
+        attn_priors = self.pad_3D(attn_priors, len(batch), max(phone_lengths), max(mel_lengths))
         attn_priors = torch.FloatTensor(attn_priors)
 
         data_dict = {}
@@ -318,7 +318,6 @@ class SingCollate():
         data_dict["wav_lengths"] = wav_lengths
         data_dict["spkid"] = spkids
         data_dict["attn_prior"] = attn_priors
-
         return data_dict
 
 

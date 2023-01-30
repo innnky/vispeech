@@ -284,7 +284,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, loaders, logg
 
         attn_soft, attn_hard, attn_hard_dur, attn_logprob = attn_out
         # Alignment loss
-        ctc_loss = sumLoss(attn_logprob=attn_logprob, in_lens=phone_lengths*2, out_lens=mel_lengths)
+        ctc_loss = sumLoss(attn_logprob=attn_logprob, in_lens=phone_lengths, out_lens=mel_lengths)
         binarization_loss_enable_steps = 18000
         binarization_loss_warmup_steps = 10000
         if global_step < binarization_loss_enable_steps:

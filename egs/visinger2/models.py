@@ -970,7 +970,7 @@ class SynthesizerTrn(nn.Module):
             attn_prior.transpose(1, 2),
             g.squeeze(-1),
         )
-        attn_hard = self.binarize_attention_parallel(attn_soft, phone_lengths*2, bn_lengths)
+        attn_hard = self.binarize_attention_parallel(attn_soft, phone_lengths, bn_lengths)
         attn_hard_dur = attn_hard.sum(2)[:, 0, :]
         attn_out = (attn_soft, attn_hard, attn_hard_dur, attn_logprob)
         estimated_dur = attn_hard_dur
@@ -982,7 +982,12 @@ class SynthesizerTrn(nn.Module):
         loss_dur = F.mse_loss(predict_dur.squeeze(1), estimated_dur.float()) * 0.1
 
         x = x.transpose(1, 2)
-        decoder_input, mel_len = self.LR(x, estimated_dur, max(bn_lengths))
+        if step < 6000:
+            A_soft = attn_soft.squeeze(1)
+            decoder_input = torch.bmm(A_soft, x)
+        else:
+            decoder_input, mel_len = self.LR(x, estimated_dur, max(bn_lengths))
+
         decoder_input = decoder_input.transpose(1, 2)
 
         LF0 = 2595. * torch.log10(1. + F0 / 700.)
