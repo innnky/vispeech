@@ -39,7 +39,7 @@
     "min_db": -115,
     "max_abs_value": 4.0,
     "n_speakers": 200,
-    "spk2id": {"opencpop": 0, "taffy": 1, "otto": 2, "nanami": 3, "kiritan": 4}
+    "spk2id": {"just": 101, "taffy": 1, "otto": 2, "nanami": 3, "kiritan": 4,"biaobei": 100,"engfemale": 102, "engmale": 103}
   },
   "model": {
     "hidden_channels": 192,

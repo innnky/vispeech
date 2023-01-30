@@ -8,7 +8,7 @@ from text.mix_frontend import others_to_phonemes
 
 def str_replace( data):
     chinaTab = ['：', '；', '，', '。', '！', '？', '【', '】', '“', '（', '）', '%', '#', '@', '&', "‘", ' ', '\n', '”',"—", "·",'、','...']
-    englishTab = [':', ';', ',', '.', '!', '?', '[', ']', '"', '(', ')', '%', '#', '@', '&', "'", ' ', '', '"', "-", "-", ",","…"]
+    englishTab = [',', ',', ',', '.', '!', '?', '[', ']', '"', '(', ')', '%', '#', '@', '&', "'", ' ', '', '"', "-", "-", ",","…"]
     for index in range(len(chinaTab)):
         if chinaTab[index] in data:
             data = data.replace(chinaTab[index], englishTab[index])

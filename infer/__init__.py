@@ -4,7 +4,6 @@ import librosa
 import numpy as np
 import torch
 import tqdm
-from text import npu
 
 def resize2d_f0(x, target_len):
     source = np.array(x)
