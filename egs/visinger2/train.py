@@ -215,7 +215,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, loaders, logg
             attn_prior = attn_prior.cuda(rank, non_blocking=True)
 
         # forward
-        y_hat, ids_slice, LF0, y_ddsp, kl_div, predict_mel, mask, attn_out, loss_f0, loss_dur = net_g(phone, phone_lengths, pitchid, dur, slur,
+        y_hat, ids_slice, LF0, y_ddsp, kl_div, mask, attn_out, loss_f0, loss_dur = net_g(phone, phone_lengths, pitchid, dur, slur,
                                                                          gtdur, f0, mel, mel_lengths, spk_id=spkid,
                                                                          attn_prior=attn_prior, step=global_step)
         y_ddsp = y_ddsp.unsqueeze(1)
@@ -298,14 +298,14 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, loaders, logg
         loss_mel_dsp = F.l1_loss(y_mel, y_ddsp_mel) * 45
         loss_spec_dsp = F.l1_loss(y_logspec, y_ddsp_logspec) * 45
 
-        loss_mel_am = F.mse_loss(mel * mask, predict_mel * mask)  # * 10
+        # loss_mel_am = F.mse_loss(mel * mask, predict_mel * mask)  # * 10
 
         loss_fm = feature_loss(fmap_r, fmap_g)
         loss_gen, losses_gen = generator_loss(y_d_hat_g)
 
         loss_fm = loss_fm / 2
         loss_gen = loss_gen / 2
-        loss_gen_all = loss_gen + loss_fm + loss_mel + loss_mel_dsp + kl_div + loss_mel_am + loss_spec_dsp + ctc_loss + bin_loss +loss_f0 +loss_dur
+        loss_gen_all = loss_gen + loss_fm + loss_mel + loss_mel_dsp + kl_div  + loss_spec_dsp + ctc_loss + bin_loss +loss_f0 +loss_dur
 
         loss_gen_all = loss_gen_all / hps.train.accumulation_steps
 
@@ -349,7 +349,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, loaders, logg
                                "loss/fm": loss_fm,
                                "loss/mel_ddsp": loss_mel_dsp,
                                "loss/spec_ddsp": loss_spec_dsp,
-                               "loss/mel_am": loss_mel_am,
+                               # "loss/mel_am": loss_mel_am,
                                "loss/kl_div": kl_div,
                                "loss/ctc":ctc_loss,
                                "loss/bin":bin_loss,
