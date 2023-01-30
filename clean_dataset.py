@@ -28,10 +28,10 @@ def process_text(line):
     return f"{id_}|啊|{phones}|rest|0|0|0\n"
 
 if __name__ == '__main__':
-    for spk in os.listdir("data"):
-        if os.path.exists(f"data/{spk}/transcription_raw.txt"):
-            with open(f"data/{spk}/transcriptions.txt", "w") as o:
-                with ProcessPoolExecutor(max_workers=int(cpu_count()) // 2) as executor:
+    with ProcessPoolExecutor(max_workers=int(cpu_count()) // 2) as executor:
+        for spk in os.listdir("data"):
+            if os.path.exists(f"data/{spk}/transcription_raw.txt"):
+                with open(f"data/{spk}/transcriptions.txt", "w") as o:
                     lines = open(f"data/{spk}/transcription_raw.txt").readlines()
                     futures = [executor.submit(process_text, line) for line in lines]
                     for f in tqdm.tqdm(as_completed(futures), total=len(lines)):
