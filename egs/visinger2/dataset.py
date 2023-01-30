@@ -9,6 +9,8 @@ import json
 from torch.utils.data import DataLoader
 import torch
 
+from modules import commons
+
 sys.path.append('../..')
 from utils.audio import load_wav
 from text import _symbol_to_id
@@ -114,7 +116,7 @@ class SingDataset(BaseDataset):
             durs.append(0)
             slurs.append(0)
             gtdurs.append(0)
-
+        phos = commons.intersperse(phos, 0)
         phos = np.asarray(phos, dtype=np.int32)
         pitchs = np.asarray(pitchs, dtype=np.int32)
         durs = np.asarray(durs, dtype=np.float32)

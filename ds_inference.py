@@ -3,6 +3,7 @@ import re
 import soundfile
 import torch
 
+from modules import commons
 from utils import utils
 from egs.visinger2.models import SynthesizerTrn
 from text.cleaner import text_to_sequence
@@ -22,6 +23,7 @@ def infer(model, hps, text, speaker):
 
     spkid = hps.data.spk2id[speaker]
     phseq = text_to_sequence(text)
+    phseq = commons.intersperse(phseq, 0)
 
     text_norm = torch.LongTensor(phseq)
     x_tst = text_norm.unsqueeze(0)

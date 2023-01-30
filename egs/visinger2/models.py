@@ -164,7 +164,7 @@ class TextEncoder(nn.Module):
         x = phone_end * math.sqrt(256)
 
         x = self.pre_net(x)
-        text_emb = torch.repeat_interleave(x, repeats=2, dim=1)
+        text_emb = x
         x = torch.transpose(x, 1, -1)  # [b, h, t]
 
         x_mask = torch.unsqueeze(commons.sequence_mask(phone_lengths, x.size(2)), 1).to(x.dtype)
@@ -966,15 +966,14 @@ class SynthesizerTrn(nn.Module):
         attn_soft, attn_logprob = self.aligner(
             mel,
             text_embedding.transpose(1, 2),
-            ~(torch.repeat_interleave(x_mask, repeats=2, dim=2).transpose(1, 2).bool()),
+            ~(x_mask.transpose(1, 2).bool()),
             attn_prior.transpose(1, 2),
             g.squeeze(-1),
         )
         attn_hard = self.binarize_attention_parallel(attn_soft, phone_lengths*2, bn_lengths)
         attn_hard_dur = attn_hard.sum(2)[:, 0, :]
         attn_out = (attn_soft, attn_hard, attn_hard_dur, attn_logprob)
-        estimated_dur = attn_hard_dur.reshape(attn_hard_dur.shape[0] , int(attn_hard_dur.shape[1] / 2), 2)
-        estimated_dur = torch.sum(estimated_dur, dim=2)
+        estimated_dur = attn_hard_dur
         # print(x.shape,x_mask, g.shape)
         # dur
         predict_dur = self.duration_predictor(x, x_mask, spk_emb=g)
@@ -1078,21 +1077,8 @@ class SynthesizerTrn(nn.Module):
             y_lengths = torch.clamp_min(torch.sum(predict_dur, [1]), 1).long()
             decoder_input, mel_len = self.LR(x, predict_dur, None)
 
-
         else:
-            y_lengths = bn_lengths
-            attn_soft, attn_logprob = self.aligner(
-                mel,
-                text_embedding.transpose(1, 2),
-                ~(torch.repeat_interleave(x_mask, repeats=2, dim=2).transpose(1, 2).bool()),
-                attn_prior.transpose(1, 2),
-                g.squeeze(-1),
-            )
-            attn_hard = self.binarize_attention_parallel(attn_soft, phone_lengths * 2, bn_lengths)
-            attn_hard_dur = attn_hard.sum(2)[:, 0, :]
-            pred_dur = attn_hard_dur.reshape(attn_hard_dur.shape[0] , int(attn_hard_dur.shape[1] / 2), 2)
-            pred_dur = torch.sum(pred_dur, dim=2)
-            decoder_input, mel_len = self.LR(x, pred_dur, max(bn_lengths))
+            assert False
 
         decoder_input = decoder_input.transpose(1, 2)
 
