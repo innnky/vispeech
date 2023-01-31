@@ -159,7 +159,7 @@ class TextEncoder(nn.Module):
             p_dropout)
         self.proj = nn.Conv1d(hidden_channels, out_channels, 1)
 
-    def forward(self, phone, phone_lengths):
+    def forward(self, phone, phone_lengths, pitchid, dur, slur):
         phone_end = self.emb_phone(phone)
         x = phone_end * math.sqrt(256)
 
@@ -876,7 +876,7 @@ class SynthesizerTrn(nn.Module):
             hps.model.prior_n_layers,
             hps.model.prior_kernel_size,
             hps.model.prior_p_dropout,
-            n_speakers=0,
+            n_speakers=hps.data.n_speakers,
             spk_channels=hps.model.spk_channels
         )
 
@@ -892,7 +892,17 @@ class SynthesizerTrn(nn.Module):
             spk_channels=hps.model.spk_channels
         )
 
-
+        self.mel_decoder = Decoder(
+            hps.data.acoustic_dim,
+            hps.model.prior_hidden_channels,
+            hps.model.prior_filter_channels,
+            hps.model.prior_n_heads,
+            hps.model.prior_n_layers,
+            hps.model.prior_kernel_size,
+            hps.model.prior_p_dropout,
+            n_speakers=hps.data.n_speakers,
+            spk_channels=hps.model.spk_channels
+        )
 
         self.posterior_encoder = PosteriorEncoder(
             hps,
@@ -927,6 +937,8 @@ class SynthesizerTrn(nn.Module):
         self.dec_noise = Generator_Noise(hps)
 
         self.f0_prenet = nn.Conv1d(1, hps.model.prior_hidden_channels, 3, padding=1)
+        self.energy_prenet = nn.Conv1d(1, hps.model.prior_hidden_channels, 3, padding=1)
+        self.mel_prenet = nn.Conv1d(hps.data.acoustic_dim, hps.model.prior_hidden_channels, 3, padding=1)
 
         if hps.data.n_speakers > 1:
             self.emb_spk = nn.Embedding(hps.data.n_speakers, hps.model.spk_channels)
@@ -959,7 +971,7 @@ class SynthesizerTrn(nn.Module):
             g = None
 
         # Encoder
-        x, x_mask,text_embedding = self.text_encoder(phone, phone_lengths)
+        x, x_mask,text_embedding = self.text_encoder(phone, phone_lengths, pitchid, dur, slur)
 
         # LR
         # decoder_input, mel_len = self.LR(x, gtdur, None)
@@ -995,13 +1007,17 @@ class SynthesizerTrn(nn.Module):
 
         # aam
         predict_lf0, predict_bn_mask = self.f0_decoder(decoder_input, bn_lengths, spk_emb=g)
+        predict_mel, predict_bn_mask = self.mel_decoder(decoder_input + self.f0_prenet(LF0), bn_lengths, spk_emb=g)
         loss_f0 = F.mse_loss(predict_lf0 * predict_bn_mask, LF0 * predict_bn_mask) * 10
 
+        predict_energy = predict_mel.detach().sum(1).unsqueeze(1) / self.hps.data.acoustic_dim
 
         decoder_input = decoder_input + \
-                        self.f0_prenet(LF0)
+                        self.f0_prenet(LF0) + \
+                        self.energy_prenet(predict_energy) + \
+                        self.mel_prenet(predict_mel.detach())
 
-        decoder_output, predict_bn_mask = self.decoder(decoder_input, bn_lengths)
+        decoder_output, predict_bn_mask = self.decoder(decoder_input, bn_lengths, spk_emb=g)
 
         # print(predict_lf0[0, :, :],LF0[0, :, :])
         # F0_std = 500
@@ -1050,7 +1066,7 @@ class SynthesizerTrn(nn.Module):
                                                  self.hps.train.segment_size)
         o = self.dec(x_slice, condition_slice.detach(), g=g)
 
-        return o, ids_slice, LF0 * predict_bn_mask, dsp_slice.sum(1), loss_kl, predict_bn_mask, attn_out, loss_f0, loss_dur
+        return o, ids_slice, LF0 * predict_bn_mask, dsp_slice.sum(1), loss_kl, predict_mel, predict_bn_mask, attn_out, loss_f0, loss_dur
 
     def infer(self, phone, phone_lengths, pitchid, dur, slur, gtdur=None, spk_id=None, length_scale=1., F0=None, noise_scale=0.8, mel=None, bn_lengths=None,attn_prior=None):
 
@@ -1060,7 +1076,7 @@ class SynthesizerTrn(nn.Module):
             g = None
 
         # Encoder
-        x, x_mask, text_embedding = self.text_encoder(phone, phone_lengths)
+        x, x_mask, text_embedding = self.text_encoder(phone, phone_lengths, pitchid, dur, slur)
         #
 
 
@@ -1100,11 +1116,15 @@ class SynthesizerTrn(nn.Module):
             F0 = torch.pow(10, F0)
             F0 = (F0 - 1) * 700.
 
+        predict_mel, predict_bn_mask = self.mel_decoder(decoder_input + self.f0_prenet(LF0), y_lengths, spk_emb=g)
         LF0 = torch.max(LF0, torch.zeros_like(LF0).to(LF0))
+        predict_energy = predict_mel.sum(1).unsqueeze(1) / self.hps.data.acoustic_dim
 
         decoder_input = decoder_input + \
-                        self.f0_prenet(LF0)
-        decoder_output, y_mask = self.decoder(decoder_input, y_lengths)
+                        self.f0_prenet(LF0) + \
+                        self.energy_prenet(predict_energy) + \
+                        self.mel_prenet(predict_mel)
+        decoder_output, y_mask = self.decoder(decoder_input, y_lengths, spk_emb=g)
 
         prior_info = decoder_output
 
