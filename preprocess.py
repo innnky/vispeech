@@ -46,7 +46,7 @@ def extract_attn_prior(mels, text):
     # Calculate attention prior
     attn_prior = beta_binomial_prior_distribution(
         mels.shape[0],
-        len(text)*2,
+        len(text)*2+1,
         beta_binomial_scaling_factor,
     )
     return attn_prior
@@ -123,7 +123,7 @@ def main():
     parser.add_argument('--config',
                         default='egs/visinger2/config.json',
                         help='json files for configurations.')
-    parser.add_argument('--num_workers', type=int, default=int(cpu_count()) // 2)
+    parser.add_argument('--num_workers', type=int, default=int(cpu_count()))
 
     args = parser.parse_args()
     hps = utils.get_hparams_from_file(args.config)

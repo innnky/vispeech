@@ -38,10 +38,10 @@ class BaseDataset(torch.utils.data.Dataset):
 
 
 class SingDataset(BaseDataset):
-    def __init__(self, hparams, data_dir, fileid_list_path, label_list_path):
+    def __init__(self, hparams, data_dir, fileid_list_path, label_list_path, is_valid=False):
         BaseDataset.__init__(self, hparams, os.path.join(data_dir, fileid_list_path))
         self.hps = hparams
-
+        self.is_valid = is_valid
         with open(os.path.join(data_dir, label_list_path), "r") as in_file:
             self.id2label = {}
             for line in in_file.readlines():
@@ -143,12 +143,13 @@ class SingDataset(BaseDataset):
         spkid = self.spk2id[spk]
         mel = np.load(os.path.join(self.data_dir, spk, "mels", fileid + '.npy'))
         sum_dur = mel.shape[0]
-        if mel.shape[0] <50:
-            print("drop short audio:", self.fileid_list[index])
-            return None
-        if mel.shape[0] > 1000:
-            print("drop long audio:", self.fileid_list[index])
-            return None
+        if not self.is_valid:
+            if mel.shape[0] <50:
+                print("drop short audio:", self.fileid_list[index])
+                return None
+            if mel.shape[0] > 1000:
+                print("drop long audio:", self.fileid_list[index])
+                return None
         assert mel.shape[1] == 80
         if(mel.shape[0] != sum_dur):
             if(abs(mel.shape[0] - sum_dur) > 3):
@@ -338,7 +339,7 @@ class DatasetConstructor():
 
     def _init_datasets(self):
         self._train_dataset = self.dataset_function[self.hparams.data.dataset_type](self.hparams, self.hparams.data.data_dir, self.hparams.data.training_filelist, self.hparams.data.training_labellist)
-        self._valid_dataset = self.dataset_function[self.hparams.data.dataset_type](self.hparams, self.hparams.data.data_dir, self.hparams.data.validation_filelist, self.hparams.data.validation_labellist)
+        self._valid_dataset = self.dataset_function[self.hparams.data.dataset_type](self.hparams, self.hparams.data.data_dir, self.hparams.data.validation_filelist, self.hparams.data.validation_labellist, True)
 
     def _init_collate(self):
         self._collate_fn = self.collate_function[self.hparams.data.collate_type](self.hparams)

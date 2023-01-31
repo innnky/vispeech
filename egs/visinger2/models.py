@@ -1049,9 +1049,9 @@ class SynthesizerTrn(nn.Module):
         # print(x.shape,x_mask, g.shape)
         # dur
         predict_dur = self.duration_predictor(x, x_mask, spk_emb=g)
-        predict_dur = (torch.exp(predict_dur) - 1) * x_mask
-        predict_dur = predict_dur * self.hps.data.sample_rate / self.hps.data.hop_size
-        loss_dur = F.mse_loss(predict_dur.squeeze(1), estimated_dur.float()) * 0.1
+        estimated_log_dur = torch.log(1 + estimated_dur.float())
+
+        loss_dur = F.mse_loss(predict_dur.squeeze(1), estimated_log_dur)
 
         x = x.transpose(1, 2)
         if step < 6000:
@@ -1152,9 +1152,8 @@ class SynthesizerTrn(nn.Module):
             # dur
             predict_dur = self.duration_predictor(x.transpose(1, 2), x_mask, spk_emb=g)
             predict_dur = (torch.exp(predict_dur) - 1) * x_mask
-            predict_dur = predict_dur * self.hps.data.sample_rate / self.hps.data.hop_size
 
-            predict_dur = torch.max(predict_dur, torch.ones_like(predict_dur).to(x))
+            # predict_dur = torch.max(predict_dur, torch.ones_like(predict_dur).to(x))
             predict_dur = torch.ceil(predict_dur).long().squeeze(1)
             y_lengths = torch.clamp_min(torch.sum(predict_dur, [1]), 1).long()
             decoder_input, mel_len = self.LR(x, predict_dur, None)
