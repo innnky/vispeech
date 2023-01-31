@@ -891,6 +891,17 @@ class SynthesizerTrn(nn.Module):
             n_speakers=hps.data.n_speakers,
             spk_channels=hps.model.spk_channels
         )
+        self.pitch_decoder = Decoder(
+            1,
+            hps.model.prior_hidden_channels,
+            hps.model.prior_filter_channels,
+            hps.model.prior_n_heads,
+            hps.model.prior_n_layers,
+            hps.model.prior_kernel_size,
+            hps.model.prior_p_dropout,
+            n_speakers=hps.data.n_speakers,
+            spk_channels=hps.model.spk_channels
+        )
 
         self.mel_decoder = Decoder(
             hps.data.acoustic_dim,
@@ -937,6 +948,7 @@ class SynthesizerTrn(nn.Module):
         self.dec_noise = Generator_Noise(hps)
 
         self.f0_prenet = nn.Conv1d(1, hps.model.prior_hidden_channels, 3, padding=1)
+        self.pitch_prenet = nn.Conv1d(1, hps.model.prior_hidden_channels, 3, padding=1)
         self.energy_prenet = nn.Conv1d(1, hps.model.prior_hidden_channels, 3, padding=1)
         self.mel_prenet = nn.Conv1d(hps.data.acoustic_dim, hps.model.prior_hidden_channels, 3, padding=1)
 
@@ -963,12 +975,52 @@ class SynthesizerTrn(nn.Module):
             attn_out = b_mas(attn_cpu, in_lens.cpu().numpy(), out_lens.cpu().numpy(), width=1)
         return torch.from_numpy(attn_out).to(attn.device)
 
+    # def calculate_phoneme_avg_pitch(self, estimated_dur, f0):
+    #     cum_dur = estimated_dur.cumsum(dim=1)
+    #     cum_dur = torch.cat([torch.zeros((estimated_dur.shape[0], 1), dtype=torch.long).cuda(), cum_dur], dim=1)
+    #     start_idx = cum_dur[:, :-1]
+    #     end_idx = cum_dur[:, 1:]
+    #
+    #     estimated_dur_split = torch.unbind(estimated_dur, dim=0)
+    #     f0_split = torch.unbind(f0, dim=0)
+    #     start_idx_split = torch.unbind(start_idx, dim=0)
+    #     end_idx_split = torch.unbind(end_idx, dim=0)
+    #
+    #     avg_pitch_split = []
+    #     for i in range(len(estimated_dur_split)):
+    #         avg_pitch_batch = []
+    #         for j in range(estimated_dur_split[i].shape[0]):
+    #             start = start_idx_split[i][j]
+    #             end = end_idx_split[i][j]
+    #             avg_pitch_batch.append(f0_split[i][int(start):int(end)].mean())
+    #         avg_pitch_split.append(torch.tensor(avg_pitch_batch))
+    #
+    #     avg_pitch = torch.stack(avg_pitch_split, dim=0).cuda()
+    #     return avg_pitch
+
+    def calculate_phoneme_avg_pitch(self, estimated_dur, f0):
+        cum_dur = estimated_dur.cumsum(dim=1)
+        cum_dur = torch.cat([torch.zeros((estimated_dur.shape[0], 1), dtype=torch.long).cuda(), cum_dur], dim=1)
+        start_idx = cum_dur[:, :-1]
+        end_idx = cum_dur[:, 1:]
+        avg_pitch = torch.zeros_like(estimated_dur, dtype=torch.float).cuda()
+        for batch in range(estimated_dur.shape[0]):
+            for i in range(estimated_dur.shape[1]):
+                start = start_idx[batch, i]
+                end = end_idx[batch, i]
+                if start == end:
+                    continue
+                avg_pitch[batch, i] = f0[batch, int(start):int(end)].mean()
+        return avg_pitch
+
     def forward(self, phone, phone_lengths, pitchid, dur, slur, gtdur,
                 F0, mel, bn_lengths, spk_id=None,attn_prior=None,step=None):
         if self.hps.data.n_speakers > 0:
             g = self.emb_spk(spk_id).unsqueeze(-1)  # [b, h, 1]
         else:
             g = None
+        LF0 = 2595. * torch.log10(1. + F0 / 700.)
+        LF0 = LF0 / 500
 
         # Encoder
         x, x_mask,text_embedding = self.text_encoder(phone, phone_lengths, pitchid, dur, slur)
@@ -986,6 +1038,14 @@ class SynthesizerTrn(nn.Module):
         attn_hard_dur = attn_hard.sum(2)[:, 0, :]
         attn_out = (attn_soft, attn_hard, attn_hard_dur, attn_logprob)
         estimated_dur = attn_hard_dur
+
+        # phoneme pitch prediction
+        estimated_pitch = self.calculate_phoneme_avg_pitch(estimated_dur, LF0.squeeze(1)).detach().unsqueeze(1)*x_mask
+        predict_pitch, predict_ph_mask = self.pitch_decoder(x, phone_lengths, spk_emb=g)
+        loss_pitch = F.mse_loss(predict_pitch * predict_ph_mask, estimated_pitch * predict_ph_mask) * 10
+        x = x + self.pitch_prenet(estimated_pitch)
+        # print(estimated_pitch)
+
         # print(x.shape,x_mask, g.shape)
         # dur
         predict_dur = self.duration_predictor(x, x_mask, spk_emb=g)
@@ -1002,13 +1062,11 @@ class SynthesizerTrn(nn.Module):
 
         decoder_input = decoder_input.transpose(1, 2)
 
-        LF0 = 2595. * torch.log10(1. + F0 / 700.)
-        LF0 = LF0 / 500
 
         # aam
         predict_lf0, predict_bn_mask = self.f0_decoder(decoder_input, bn_lengths, spk_emb=g)
         predict_mel, predict_bn_mask = self.mel_decoder(decoder_input + self.f0_prenet(LF0), bn_lengths, spk_emb=g)
-        loss_f0 = F.mse_loss(predict_lf0 * predict_bn_mask, LF0 * predict_bn_mask) * 10
+        loss_f0 = F.mse_loss(predict_lf0 * predict_bn_mask, LF0 * predict_bn_mask) * 10 +loss_pitch
 
         predict_energy = predict_mel.detach().sum(1).unsqueeze(1) / self.hps.data.acoustic_dim
 
@@ -1077,7 +1135,10 @@ class SynthesizerTrn(nn.Module):
 
         # Encoder
         x, x_mask, text_embedding = self.text_encoder(phone, phone_lengths, pitchid, dur, slur)
+
         #
+        predict_pitch, predict_ph_mask = self.pitch_decoder(x, phone_lengths, spk_emb=g)
+        x = x + self.pitch_prenet(predict_pitch)
 
 
         x = x.transpose(1, 2)
