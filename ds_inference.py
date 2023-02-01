@@ -13,7 +13,7 @@ config_json = "egs/visinger2/config.json"
 checkpoint_path = f"/Volumes/Extend/下载/G_60000.pth"
 step = re.findall(r'G_(\d+)\.pth', checkpoint_path)[0]
 text = "[JA]私が思う標準貝は日本語も話せる。[JA]"
-text = "为了保护尤摩扬人民不受异虫的残害，我所做的，比他们自己的领导委员会都多。"
+text = "但杨然称要登门拜访，将李某和飞而的事情告诉他妻子。"
 
 hps = utils.get_hparams_from_file(config_json)
 net_g = SynthesizerTrn(hps)
