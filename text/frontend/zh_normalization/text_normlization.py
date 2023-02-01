@@ -51,7 +51,7 @@ from .quantifier import replace_temperature
 
 class TextNormalizer():
     def __init__(self):
-        self.SENTENCE_SPLITOR = re.compile(r'([：、，；。？！,;?!][”’]?)')
+        self.SENTENCE_SPLITOR = re.compile(r'([：、，；。？！,;?!….][”’]?)')
 
     def _split(self, text: str, lang="zh") -> List[str]:
         """Split long text into sentences with sentence-splitting punctuations.
@@ -64,7 +64,7 @@ class TextNormalizer():
         if lang == "zh":
             text = text.replace(" ", "")
             # 过滤掉特殊字符
-            text = re.sub(r'[《》【】<=>{}()（）#&@“”^_|…\\]', '', text)
+            text = re.sub(r'[《》【】<=>{}()（）&@“”^_|\\]', '', text)
         text = self.SENTENCE_SPLITOR.sub(r'\1\n', text)
         text = text.strip()
         sentences = [sentence.strip() for sentence in re.split(r'\n+', text)]

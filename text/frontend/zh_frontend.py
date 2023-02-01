@@ -36,10 +36,10 @@ class Frontend():
         self.tone_modifier = ToneSandhi()
         self.text_normalizer = TextNormalizer()
 
-        self.punc = ['!', '?', '…', ",", "."]
+        self.punc = ['!', '?', '…', ",", ".", "#"]
         # g2p_model can be pypinyin and g2pM
         self.g2p_model = g2p_model
-
+        self.add_word_sep = True
         if self.g2p_model == "g2pM":
             self.g2pM_model = G2pM()
             self.pinyin2phone = generate_lexicon(
@@ -135,6 +135,8 @@ class Frontend():
             finals = []
             seg_cut = self.tone_modifier.pre_merge_for_modify(seg_cut)
             for word, pos in seg_cut:
+                if self.add_word_sep and word == "#":
+                    continue
                 if pos == 'eng':
                     continue
                 sub_initials, sub_finals = self._get_initials_finals(word)
@@ -145,6 +147,10 @@ class Frontend():
                         sub_initials, sub_finals, word, pos)
                 initials.append(sub_initials)
                 finals.append(sub_finals)
+                if self.add_word_sep and word not in self.punc:
+                    initials.append(["#"])
+                    finals.append(["#"])
+
                 # assert len(sub_initials) == len(sub_finals) == len(word)
             initials = sum(initials, [])
             finals = sum(finals, [])

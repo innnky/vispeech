@@ -313,7 +313,7 @@ class ToneSandhi():
     def _merge_er(self, seg: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
         new_seg = []
         for i, (word, pos) in enumerate(seg):
-            if i - 1 >= 0 and word == "儿":
+            if i - 1 >= 0 and word == "儿" and seg[i-1][0] != "#":
                 new_seg[-1][0] = new_seg[-1][0] + seg[i][0]
             else:
                 new_seg.append([word, pos])

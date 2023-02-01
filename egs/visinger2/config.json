@@ -8,7 +8,7 @@
     "learning_rate": 2e-4,
     "betas": [0.8, 0.99],
     "eps": 1e-9,
-    "batch_size": 8,
+    "batch_size": 5,
     "accumulation_steps": 1,
     "fp16_run": false,
     "lr_decay": 0.998,
@@ -39,7 +39,7 @@
     "min_db": -115,
     "max_abs_value": 4.0,
     "n_speakers": 200,
-    "spk2id": {"just": 101, "taffy": 1, "otto": 2, "nanami": 3, "kiritan": 4,"biaobei": 100,"engfemale": 102, "engmale": 103}
+    "spk2id": {"just": 101, "otto": 2, "nanami": 3, "kiritan": 4,"biaobei": 100,"engfemale": 102, "engmale": 103, "taffy": 104, "dxl": 105, "koni": 106, "nyaru": 107, "mana": 108, "serena": 109, "pzj": 110}
   },
   "model": {
     "hidden_channels": 192,
