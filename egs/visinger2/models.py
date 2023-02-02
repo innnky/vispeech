@@ -78,86 +78,6 @@ def b_mas(b_attn_map, in_lens, out_lens, width=1):
     return attn_out
 
 
-class StochasticDurationPredictor(nn.Module):
-  def __init__(self, in_channels, filter_channels, kernel_size, p_dropout, n_flows=4, gin_channels=0):
-    super().__init__()
-    filter_channels = in_channels # it needs to be removed from future version.
-    self.in_channels = in_channels
-    self.filter_channels = filter_channels
-    self.kernel_size = kernel_size
-    self.p_dropout = p_dropout
-    self.n_flows = n_flows
-    self.gin_channels = gin_channels
-
-    self.log_flow = modules.Log()
-    self.flows = nn.ModuleList()
-    self.flows.append(modules.ElementwiseAffine(2))
-    for i in range(n_flows):
-      self.flows.append(modules.ConvFlow(2, filter_channels, kernel_size, n_layers=3))
-      self.flows.append(modules.Flip())
-
-    self.post_pre = nn.Conv1d(1, filter_channels, 1)
-    self.post_proj = nn.Conv1d(filter_channels, filter_channels, 1)
-    self.post_convs = modules.DDSConv(filter_channels, kernel_size, n_layers=3, p_dropout=p_dropout)
-    self.post_flows = nn.ModuleList()
-    self.post_flows.append(modules.ElementwiseAffine(2))
-    for i in range(4):
-      self.post_flows.append(modules.ConvFlow(2, filter_channels, kernel_size, n_layers=3))
-      self.post_flows.append(modules.Flip())
-
-    self.pre = nn.Conv1d(in_channels, filter_channels, 1)
-    self.proj = nn.Conv1d(filter_channels, filter_channels, 1)
-    self.convs = modules.DDSConv(filter_channels, kernel_size, n_layers=3, p_dropout=p_dropout)
-    if gin_channels != 0:
-      self.cond = nn.Conv1d(gin_channels, filter_channels, 1)
-
-  def forward(self, x, x_mask, w=None, g=None, reverse=False, noise_scale=1.0):
-    x = torch.detach(x)
-    x = self.pre(x)
-    if g is not None:
-      g = torch.detach(g)
-      x = x + self.cond(g)
-    x = self.convs(x, x_mask)
-    x = self.proj(x) * x_mask
-
-    if not reverse:
-      flows = self.flows
-      assert w is not None
-
-      logdet_tot_q = 0
-      h_w = self.post_pre(w)
-      h_w = self.post_convs(h_w, x_mask)
-      h_w = self.post_proj(h_w) * x_mask
-      e_q = torch.randn(w.size(0), 2, w.size(2)).to(device=x.device, dtype=x.dtype) * x_mask
-      z_q = e_q
-      for flow in self.post_flows:
-        z_q, logdet_q = flow(z_q, x_mask, g=(x + h_w))
-        logdet_tot_q += logdet_q
-      z_u, z1 = torch.split(z_q, [1, 1], 1)
-      u = torch.sigmoid(z_u) * x_mask
-      z0 = (w - u) * x_mask
-      logdet_tot_q += torch.sum((F.logsigmoid(z_u) + F.logsigmoid(-z_u)) * x_mask, [1,2])
-      logq = torch.sum(-0.5 * (math.log(2*math.pi) + (e_q**2)) * x_mask, [1,2]) - logdet_tot_q
-
-      logdet_tot = 0
-      z0, logdet = self.log_flow(z0, x_mask)
-      logdet_tot += logdet
-      z = torch.cat([z0, z1], 1)
-      for flow in flows:
-        z, logdet = flow(z, x_mask, g=x, reverse=reverse)
-        logdet_tot = logdet_tot + logdet
-      nll = torch.sum(0.5 * (math.log(2*math.pi) + (z**2)) * x_mask, [1,2]) - logdet_tot
-      return nll + logq # [b]
-    else:
-      flows = list(reversed(self.flows))
-      flows = flows[:-2] + [flows[-1]] # remove a useless vflow
-      z = torch.randn(x.size(0), 2, x.size(2)).to(device=x.device, dtype=x.dtype) * noise_scale
-      for flow in flows:
-        z = flow(z, x_mask, g=x, reverse=reverse)
-      z0, z1 = torch.split(z, [1, 1], 1)
-      logw = z0
-      return logw
-
 class DurationPredictor(nn.Module):
     def __init__(self, in_channels, filter_channels, kernel_size, p_dropout, n_speakers=0, spk_channels=0):
         super().__init__()
@@ -1003,8 +923,13 @@ class SynthesizerTrn(nn.Module):
 
         self.dropout = nn.Dropout(0.2)
 
-        self.dp = StochasticDurationPredictor(hps.model.hidden_channels, 192, 3, 0.5, 4, gin_channels=hps.model.spk_channels)
-
+        self.duration_predictor = DurationPredictor(
+            hps.model.prior_hidden_channels,
+            hps.model.prior_hidden_channels,
+            3,
+            0.5,
+            n_speakers=hps.data.n_speakers,
+            spk_channels=hps.model.spk_channels)
         self.LR = LengthRegulator()
 
         self.dec = Generator(hps,
@@ -1123,9 +1048,10 @@ class SynthesizerTrn(nn.Module):
 
         # print(x.shape,x_mask, g.shape)
         # dur
-        l_length = self.dp(x, x_mask, estimated_dur.unsqueeze(1).float(), g=g)
-        l_length = l_length / torch.sum(x_mask)
-        loss_dur = torch.sum(l_length.float())
+        predict_dur = self.duration_predictor(x, x_mask, spk_emb=g)
+        estimated_log_dur = torch.log(1 + estimated_dur.float())
+
+        loss_dur = F.mse_loss(predict_dur.squeeze(1), estimated_log_dur)
 
         x = x.transpose(1, 2)
         if step < 6000:
@@ -1200,7 +1126,7 @@ class SynthesizerTrn(nn.Module):
 
         return o, ids_slice, LF0 * predict_bn_mask, dsp_slice.sum(1), loss_kl, predict_mel, predict_bn_mask, attn_out, loss_f0, loss_dur
 
-    def infer(self, phone, phone_lengths, pitchid, dur, slur, gtdur=None, spk_id=None, length_scale=1., F0=None, noise_scale=0.8, mel=None, bn_lengths=None,attn_prior=None,noise_scale_w=1.):
+    def infer(self, phone, phone_lengths, pitchid, dur, slur, gtdur=None, spk_id=None, length_scale=1., F0=None, noise_scale=0.8, mel=None, bn_lengths=None,attn_prior=None):
 
         if self.hps.data.n_speakers > 0:
             g = self.emb_spk(spk_id).unsqueeze(-1)  # [b, h, 1]
@@ -1215,21 +1141,22 @@ class SynthesizerTrn(nn.Module):
         x = x + self.pitch_prenet(predict_pitch)
 
 
+        x = x.transpose(1, 2)
 
         if gtdur != None:
             # dur
             y_lengths = torch.clamp_min(torch.sum(gtdur.squeeze(1), [1]), 1).long()
             # LR
-            decoder_input, mel_len = self.LR(x.transpose(1, 2), gtdur.squeeze(1), max(y_lengths))
+            decoder_input, mel_len = self.LR(x, gtdur.squeeze(1), max(y_lengths))
         elif mel == None:
             # dur
-            logw = self.dp(x, x_mask, g=g, reverse=True, noise_scale=noise_scale_w)
-            predict_dur = torch.exp(logw) * x_mask * length_scale
+            predict_dur = self.duration_predictor(x.transpose(1, 2), x_mask, spk_emb=g)
+            predict_dur = (torch.exp(predict_dur) - 1) * x_mask
 
             # predict_dur = torch.max(predict_dur, torch.ones_like(predict_dur).to(x))
             predict_dur = torch.ceil(predict_dur).long().squeeze(1)
             y_lengths = torch.clamp_min(torch.sum(predict_dur, [1]), 1).long()
-            decoder_input, mel_len = self.LR(x.transpose(1, 2), predict_dur, None)
+            decoder_input, mel_len = self.LR(x, predict_dur, None)
 
         else:
             assert False
