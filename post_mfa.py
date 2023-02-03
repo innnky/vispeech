@@ -2,9 +2,9 @@
 import os
 import numpy as np
 import tgt
+from text.symbols import pu_symbols
 
-
-
+silence_symbol = ["sil", "sp"]
 sampling_rate = 44100
 hop_length = 512
 
@@ -53,19 +53,58 @@ def get_alignment(tier):
         end_time.append(tier.end_time)
     return phones, durations, end_time
 
+def refine_and_add_symbol(phones, durations, label):
+    gt_phones = label.strip().split(" ")
+    i = 0
+    j = 0
+    refined_phones = []
+    gtph = None
+    while i<len(phones) and j<len(gt_phones):
+        ph = phones[i]
+        gtph = gt_phones[j]
+        if ph == gtph or gtph.lower() == ph.lower():
+            i += 1
+            j += 1
+            refined_phones.append(gtph)
+        elif ph in silence_symbol:
+            i += 1
+            refined_phones.append(ph)
+        elif gtph in pu_symbols:
+            if i > 0 and refined_phones[-1] in silence_symbol:
+                refined_phones[-1] = gtph
+            else:
+                print("skip symbol", gtph)
+            j += 1
+        else:
+            assert False
+    if i != len(phones):
+        refined_phones += phones[i:]
+        print("label missing", phones[i:])
+    if gtph in pu_symbols and refined_phones[-1] in silence_symbol:
+        refined_phones[-1] = gtph
+        j +=1
+    if j != len(gt_phones):
+        print("skip symbol",gt_phones[j:])
 
+
+    assert len(refined_phones) == len(phones)
+    return refined_phones
 with open(f"filelists/files.dur", "w") as out_file:
     for spk in os.listdir("mfa_temp/textgrids"):
         if os.path.isdir(f"mfa_temp/textgrids/{spk}"):
             align_root= f"mfa_temp/textgrids/{spk}"
             for txgridname in sorted(os.listdir(align_root)):
                 if txgridname.endswith("Grid"):
-                    # print(f"{align_root}/{txgridname}")
                     textgrid = tgt.io.read_textgrid(f"{align_root}/{txgridname}")
                     phone, duration, end_times = get_alignment(
                         textgrid.get_tier_by_name("phones")
                     )
                     id_ = txgridname.replace(".TextGrid", "")
+                    label = open(f"mfa_temp/wavs/{spk}/{id_}.txt").read()
+                    phone = refine_and_add_symbol(phone, duration, label)
+
                     ph = " ".join(phone)
                     du = " ".join([str(i) for i in duration])
+                    ph = ph.replace("JA", ".")
+                    # ph = ph.replace("JA", ".")
                     out_file.write(f"{spk}|{id_}|{ph}|{du}\n")

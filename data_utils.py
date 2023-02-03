@@ -28,7 +28,7 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         self.hop_length     = hparams.hop_length
         self.win_length     = hparams.win_length
         self.sampling_rate  = hparams.sampling_rate
-
+        self.spk_map = hparams.spk2id
 
         # self.add_blank = hparams.add_blank
         # self.min_text_len = getattr(hparams, "min_text_len", 1)
@@ -49,11 +49,12 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         lengths = []
         audiopath_and_text_new = []
         # 取出每一行的音频地址audiopath和音频内容text
-
-        for wav_path, phonemes, phn_dur, sid, phf0, energy in self.audiopaths_and_text:
+        for spk, id_, phonemes, durations, pitch, energy in self.audiopaths_and_text:
             # get_size获取文件大小（字节数），这里计算wav的长度，根据上方计算公式得出结果
+            wav_path = f"dataset/{spk}/{id_}.wav"
             lengths.append(os.path.getsize(wav_path) // (2 * self.hop_length))
-            audiopath_and_text_new.append([wav_path, phonemes, phn_dur, sid, phf0, energy])
+            sid = self.spk_map[spk]
+            audiopath_and_text_new.append([wav_path, spk, id_,sid, phonemes, durations, pitch, energy])
         self.lengths = lengths
         self.audiopaths_and_text = audiopath_and_text_new
 
@@ -61,14 +62,14 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
     def get_audio_text_pair(self, audiopath_and_text):
         # separate filename and text
 
-        wav_path, phonemes, phn_dur, spk, phf0, energy = audiopath_and_text
+        wav_path, spk, id_,sid, phonemes, durations, pitch, energy = audiopath_and_text
 
         phonemes = self.get_phonemes(phonemes)
-        phn_dur = self.get_duration_flag(phn_dur)
+        phn_dur = self.get_duration_flag(durations)
         spk = torch.LongTensor([int(spk)])
         # 得到文本内容、频谱图、音频数据
         spec, wav = self.get_audio(wav_path)
-        f0 = torch.FloatTensor([float(i) for i in phf0.strip().split(" ")])
+        f0 = torch.FloatTensor([float(i) for i in pitch.strip().split(" ")])
         energy = torch.FloatTensor([float(i) for i in energy.strip().split(" ")])
         assert energy.shape == f0.shape
         assert abs(spec.shape[-1] - sum(phn_dur))<2, wav_path

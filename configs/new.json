@@ -1,13 +1,13 @@
 {
   "train": {
     "log_interval": 200,
-    "eval_interval": 1200,
+    "eval_interval": 1000,
     "seed": 1234,
-    "epochs": 20000,
-    "learning_rate": 1e-4,
+    "epochs": 10000,
+    "learning_rate": 2e-4,
     "betas": [0.8, 0.99],
     "eps": 1e-9,
-    "batch_size": 10,
+    "batch_size": 8,
     "fp16_run": true,
     "lr_decay": 0.999875,
     "segment_size": 16384,
@@ -21,15 +21,16 @@
     "validation_files":"filelists/val.txt",
     "max_wav_value": 32768.0,
     "sampling_rate": 44100,
-    "filter_length": 1024,
+    "filter_length": 2048,
     "hop_length": 512,
-    "win_length": 1024,
+    "win_length": 2048,
     "n_mel_channels": 80,
     "mel_fmin": 0.0,
     "mel_fmax": null,
     "add_blank": true,
-    "n_speakers": 109,
-    "cleaned_text": true
+    "n_speakers": 200,
+    "cleaned_text": true,
+    "spk2id": {"just": 101, "taffy": 1, "otto": 2, "nanami": 3, "kiritan": 4,"biaobei": 100,"engfemale": 102, "engmale": 103}
   },
   "model": {
     "inter_channels": 192,
