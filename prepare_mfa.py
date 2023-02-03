@@ -38,7 +38,7 @@ if __name__ == '__main__':
                     id_, phones = process_text(line)
                     with open(f"mfa_temp/wavs/{spk}/{id_}.txt", "w") as o:
                         o.write(phones + "\n")
-                    # shutil.move(f"/Volumes/Extend/下载/vispeechdata/未命名文件夹/vtubers/{spk}/wavs/{id_}.wav", f"mfa_temp/wavs/{spk}/{id_}.wav")
+                    # shutil.move(f"data/{spk}/wavs/{id_}.wav", f"mfa_temp/wavs/{spk}/{id_}.wav")
                     # result = f.result()
                     # o.write(result)
     #．
