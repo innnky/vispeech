@@ -33,26 +33,20 @@ class Frontend():
                  g2p_model="pypinyin",
                  phone_vocab_path=None,
                  tone_vocab_path=None):
-        print("t1")
         self.tone_modifier = ToneSandhi()
-        print("t2")
         self.text_normalizer = TextNormalizer()
-        print("t3")
 
-        self.punc = ['!', '?', '…', ",", "."]
+        self.punc = ['!', '?', '…', ",", ".", "#"]
         # g2p_model can be pypinyin and g2pM
         self.g2p_model = g2p_model
-        print("t4")
-
+        self.add_word_sep = False
         if self.g2p_model == "g2pM":
             self.g2pM_model = G2pM()
             self.pinyin2phone = generate_lexicon(
                 with_tone=True, with_erhua=False)
-            print("t5")
         else:
 
             self.__init__pypinyin()
-            print("t6")
         self.must_erhua = {"小院儿", "胡同儿", "范儿", "老汉儿", "撒欢儿", "寻老礼儿", "妥妥儿"}
         self.not_erhua = {
             "虐儿", "为儿", "护儿", "瞒儿", "救儿", "替儿", "有儿", "一儿", "我儿", "俺儿", "妻儿",
@@ -73,8 +67,7 @@ class Frontend():
                 tone_id = [line.strip().split() for line in f.readlines()]
             for tone, id in tone_id:
                 self.vocab_tones[tone] = int(id)
-        print("t7")
-
+        print("initialized zh frontend")
     def __init__pypinyin(self):
         large_pinyin.load()
         #
@@ -142,6 +135,8 @@ class Frontend():
             finals = []
             seg_cut = self.tone_modifier.pre_merge_for_modify(seg_cut)
             for word, pos in seg_cut:
+                if self.add_word_sep and word == "#":
+                    continue
                 if pos == 'eng':
                     continue
                 sub_initials, sub_finals = self._get_initials_finals(word)
@@ -152,6 +147,10 @@ class Frontend():
                         sub_initials, sub_finals, word, pos)
                 initials.append(sub_initials)
                 finals.append(sub_finals)
+                if self.add_word_sep and word not in self.punc:
+                    initials.append(["#"])
+                    finals.append(["#"])
+
                 # assert len(sub_initials) == len(sub_finals) == len(word)
             initials = sum(initials, [])
             finals = sum(finals, [])
