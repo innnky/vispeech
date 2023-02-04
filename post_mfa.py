@@ -4,7 +4,7 @@ import numpy as np
 import tgt
 from text.symbols import pu_symbols
 
-silence_symbol = ["sil", "sp"]
+silence_symbol = ["sil", "sp", "spn"]
 sampling_rate = 44100
 hop_length = 512
 
@@ -101,8 +101,10 @@ with open(f"filelists/files.dur", "w") as out_file:
                     )
                     id_ = txgridname.replace(".TextGrid", "")
                     label = open(f"mfa_temp/wavs/{spk}/{id_}.txt").read()
-                    phone = refine_and_add_symbol(phone, duration, label)
-
+                    try:
+                        phone = refine_and_add_symbol(phone, duration, label)
+                    except:
+                        print(align_root, txgridname)
                     ph = " ".join(phone)
                     du = " ".join([str(i) for i in duration])
                     ph = ph.replace("JA", ".")

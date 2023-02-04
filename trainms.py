@@ -256,9 +256,9 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
             if global_step % hps.train.eval_interval == 0:
                 evaluate(hps, net_g, eval_loader, writer_eval)
                 utils.save_checkpoint(net_g, optim_g, hps.train.learning_rate, epoch,
-                                      os.path.join(hps.model_dir, "G_{}.pth".format(global_step)))
+                                      os.path.join(hps.model_dir, "G_{}.pth".format(global_step)), hps.train.eval_interval)
                 utils.save_checkpoint(net_d, optim_d, hps.train.learning_rate, epoch,
-                                      os.path.join(hps.model_dir, "D_{}.pth".format(global_step)))
+                                      os.path.join(hps.model_dir, "D_{}.pth".format(global_step)), hps.train.eval_interval)
         global_step += 1
 
     if rank == 0:
@@ -274,7 +274,7 @@ def evaluate(hps, generator, eval_loader, writer_eval):
                         f0,energy,
                         phndur,
                         spec, spec_lengths, wav, wav_lengths, sid) in enumerate(eval_loader):
-            for shift, energy_shift in [(0.8, 1), (1, 1), (1, 0.5),(1,1.4)]:
+            for shift, energy_shift in [(1, 1)]:
                 phonemes, phonemes_lengths = phonemes.cuda(0), phonemes_lengths.cuda(0)
                 spec, spec_lengths = spec.cuda(0), spec_lengths.cuda(0)
                 wav, wav_lengths = wav.cuda(0), wav_lengths.cuda(0)
@@ -325,8 +325,6 @@ def evaluate(hps, generator, eval_loader, writer_eval):
 
                 image_dict.update({f"gt/mel-{batch_idx}": utils.plot_spectrogram_to_numpy(mel[0].cpu().numpy())})
                 audio_dict.update({f"gt/audio-{batch_idx}": wav[0, :, :wav_lengths[0]]})
-                if batch_idx > 3:
-                    break
     utils.summarize(
         writer=writer_eval,
         global_step=global_step,

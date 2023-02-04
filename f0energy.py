@@ -110,7 +110,7 @@ with open(f"filelists/train.txt" ,"w") as outfile:
 
         phones = " ".join(phones)
         durations = " ".join([str(i) for i in durations])
-        # shutil.move(wav_path, target_path)
+        shutil.move(wav_path, target_path)
         print(iii, wav_path)
         outfile.write(f"{spk}|{id_}|{phones}|{durations}|{nphf0}|{phenergy}\n")
         #

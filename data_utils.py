@@ -66,7 +66,7 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
 
         phonemes = self.get_phonemes(phonemes)
         phn_dur = self.get_duration_flag(durations)
-        spk = torch.LongTensor([int(spk)])
+        spk = torch.LongTensor([int(sid)])
         # 得到文本内容、频谱图、音频数据
         spec, wav = self.get_audio(wav_path)
         f0 = torch.FloatTensor([float(i) for i in pitch.strip().split(" ")])
