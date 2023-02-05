@@ -7,8 +7,8 @@ from text.zh_frontend import zh_to_phonemes
 from text.mix_frontend import others_to_phonemes
 
 def str_replace( data):
-    chinaTab = ['：', '；', '，', '。', '！', '？', '【', '】', '“', '（', '）', '%', '#', '@', '&', "‘", ' ', '\n', '”',"—", "·",'、','...', " "]
-    englishTab = [',', ',', ',', '.', '!', '?', '[', ']', '"', '(', ')', '%', '#', '@', '&', "'", ' ', '', '"', "-", "-", ",","…", ","]
+    chinaTab = ['：', '；', '，', '。', '！', '？', '【', '】', '“', '（', '）', '%', '#', '@', '&', "‘", ' ', '\n', '”',"—", "·",'、','...',"―", "～"]
+    englishTab = [',', ',', ',', '.', '!', '?', '[', ']', '"', '(', ')', '%', '#', '@', '&', "'", ' ', '', '"', "-", "-", ",","…", ",", ","]
     for index in range(len(chinaTab)):
         if chinaTab[index] in data:
             data = data.replace(chinaTab[index], englishTab[index])
@@ -20,7 +20,7 @@ def text_to_sequence(text):
     return cleaned_text_to_sequence(phones)
 
 def text_to_phones(text: str) -> list:
-    text = str_replace(text).replace("\"", '').replace("--", ",")
+    text = str_replace(text).replace("\"", '')
     # find all text blocks enclosed in [JA], [ZH], [EN]
     original_text = text
     blocks = re.finditer(r'\[(JA|ZH|EN)\](.*?)\[\1\]', text)
@@ -56,7 +56,8 @@ if __name__ == '__main__':
     text = '[JA]シシ…すご,,いじゃんシシラシャミョンありがとうえーっとシンモーレシンモーレじゃんシシラシャミョン[JA]'
     text="大家好#要筛#，你好#也#要筛#。"
     text = "嗯？什么东西…沉甸甸的…下午1:00，今天是2022/5/10"
-    text = "[ZH]哇#，古文耶#——说着#伸出手#说#，你好#，久仰了#。[ZH]"
+    text = "A I人工智能"
+    # text = "[JA]それより仮屋さん,例の件ですが――[JA]"
     # text = "早上好，今天是2020/10/29，最低温度是-3°C。"
     # # text = "…………"
     # print(text_to_sequence(text))

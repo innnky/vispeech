@@ -50,6 +50,10 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         audiopath_and_text_new = []
         # 取出每一行的音频地址audiopath和音频内容text
         for spk, id_, phonemes, durations, pitch, energy in self.audiopaths_and_text:
+            phn_dur = self.get_duration_flag(durations)
+            if sum(phn_dur) > 1200:
+                print("skip too long wav", spk, id_)
+                continue
             # get_size获取文件大小（字节数），这里计算wav的长度，根据上方计算公式得出结果
             wav_path = f"dataset/{spk}/{id_}.wav"
             lengths.append(os.path.getsize(wav_path) // (2 * self.hop_length))

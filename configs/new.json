@@ -1,14 +1,14 @@
 {
   "train": {
-    "log_interval": 200,
+    "log_interval": 100,
     "eval_interval": 1000,
     "seed": 1234,
     "epochs": 10000,
-    "learning_rate": 2e-4,
+    "learning_rate": 1e-4,
     "betas": [0.8, 0.99],
     "eps": 1e-9,
     "batch_size": 8,
-    "fp16_run": true,
+    "fp16_run": false,
     "lr_decay": 0.999875,
     "segment_size": 16384,
     "init_lr_ratio": 1,
@@ -17,8 +17,8 @@
     "c_kl": 1.0
   },
   "data": {
-    "training_files":"filelists/train.txt",
-    "validation_files":"filelists/val.txt",
+    "training_files":"filelists/trainall.txt",
+    "validation_files":"filelists/valall.txt",
     "max_wav_value": 32768.0,
     "sampling_rate": 44100,
     "filter_length": 2048,
@@ -30,7 +30,7 @@
     "add_blank": true,
     "n_speakers": 200,
     "cleaned_text": true,
-    "spk2id": {"just": 101, "taffy": 1, "otto": 2, "nanami": 3, "kiritan": 4,"biaobei": 100,"engfemale": 102, "engmale": 103}
+    "spk2id": {"SSB1125": 0, "SSB0434": 1, "SSB0631": 2, "SSB0609": 3, "SSB0863": 4, "SSB0578": 5, "SSB1806": 6, "SSB0316": 7, "SSB1056": 8, "SSB0342": 9, "SSB0380": 10, "SSB0710": 11, "SSB1863": 12, "SSB1831": 13, "SSB0375": 14, "SSB1253": 15, "SSB1630": 16, "SSB0720": 17, "SSB0395": 18, "SSB1624": 19, "SSB0366": 20, "SSB1878": 21, "SSB0966": 22, "SSB0760": 23, "SSB0590": 24, "SSB1684": 25, "SSB0394": 26, "SSB1020": 27, "SSB0139": 28, "SSB1956": 29, "SSB0073": 30, "SSB0241": 31, "SSB0016": 32, "SSB0623": 33, "SSB1136": 34, "SSB1935": 35, "SSB1100": 36, "SSB0261": 37, "SSB0603": 38, "SSB1383": 39, "SSB0407": 40, "SSB0632": 41, "SSB0666": 42, "SSB1575": 43, "SSB0668": 44, "SSB0588": 45, "SSB0544": 46, "SSB0385": 47, "SSB1408": 48, "SSB0748": 49, "SSB0784": 50, "SSB1448": 51, "SSB0534": 52, "SSB0762": 53, "SSB0535": 54, "SSB0686": 55, "SSB0273": 56, "SSB0887": 57, "SSB0817": 58, "SSB0415": 59, "SSB0629": 60, "SSB1161": 61, "jsut": 62, "biaobei": 63, "nene": 64, "engfemale": 65, "engmale": 66}
   },
   "model": {
     "inter_channels": 192,

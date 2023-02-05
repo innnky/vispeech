@@ -60,11 +60,12 @@ def get_pitch(path,lll):
     return f0
 
 iii = 0
-with open(f"filelists/train.txt" ,"w") as outfile:
-    for line in open(f"filelists/files.dur").readlines():
+lang = "zh"
+with open(f"filelists/{lang}_train.list" ,"w") as outfile:
+    for line in open(f"filelists/{lang}.dur").readlines():
         spk,id_, phones, durations = line.strip().split("|")
         pathlib.Path(f"dataset/{spk}").mkdir(exist_ok=True)
-        wav_path = f"mfa_temp/wavs/{spk}/{id_}.wav"
+        wav_path = f"mfa_temp/wavs/{lang}/{spk}/{id_}.wav"
         target_path = f"dataset/{spk}/{id_}.wav"
         phones = phones.split(" ")
 
@@ -110,7 +111,7 @@ with open(f"filelists/train.txt" ,"w") as outfile:
 
         phones = " ".join(phones)
         durations = " ".join([str(i) for i in durations])
-        shutil.move(wav_path, target_path)
+        # shutil.move(wav_path, target_path)
         print(iii, wav_path)
         outfile.write(f"{spk}|{id_}|{phones}|{durations}|{nphf0}|{phenergy}\n")
         #
