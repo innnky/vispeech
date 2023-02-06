@@ -51,7 +51,7 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         # 取出每一行的音频地址audiopath和音频内容text
         for spk, id_, phonemes, durations, pitch, energy in self.audiopaths_and_text:
             phn_dur = self.get_duration_flag(durations)
-            if sum(phn_dur) > 1200:
+            if sum(phn_dur) > 1400:
                 print("skip too long wav", spk, id_)
                 continue
             # get_size获取文件大小（字节数），这里计算wav的长度，根据上方计算公式得出结果
@@ -75,10 +75,15 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         spec, wav = self.get_audio(wav_path)
         f0 = torch.FloatTensor([float(i) for i in pitch.strip().split(" ")])
         energy = torch.FloatTensor([float(i) for i in energy.strip().split(" ")])
-        assert energy.shape == f0.shape
-        assert abs(spec.shape[-1] - sum(phn_dur))<2, wav_path
-        assert phonemes.shape ==phn_dur.shape, phonemes
-        assert phonemes.shape ==f0.shape
+        sumdur = sum(phn_dur)
+        assert abs(spec.shape[-1] - sumdur) < 2, wav_path
+        if spec.shape[-1] > sumdur:
+            spec = spec[:, :sumdur]
+        elif spec.shape[-1] < sumdur:
+            spec_pad = torch.zeros([spec.shape[0], sumdur])
+            spec_pad[:, :spec.shape[-1]] = spec
+            spec = spec_pad
+        assert phonemes.shape ==f0.shape==phn_dur.shape==energy.shape, wav_path
         return phonemes,f0, phn_dur, spec, wav, spk,energy
 
     def get_phonemes(self, phonemes):

@@ -648,11 +648,6 @@ class SynthesizerTrn(nn.Module):
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x_frame.size(2)), 1).to(x.device)
         x_frame = x_frame.to(x.device)
 
-        # 补零对齐spec和帧级别输入
-        spec_padded = torch.zeros(spec.shape[0], spec.shape[1], x_frame.shape[-1]).float().to(spec.device)
-        spec_padded[:, :, :spec.shape[-1]] = spec
-        spec = spec_padded.detach()
-
         # 帧先验网络
         x_frame = self.frame_prior_net(x_frame, x_mask)
         x_frame = x_frame.transpose(1, 2)
