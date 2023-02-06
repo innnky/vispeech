@@ -79,11 +79,16 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         assert abs(spec.shape[-1] - sumdur) < 2, wav_path
         if spec.shape[-1] > sumdur:
             spec = spec[:, :sumdur]
+            wav = wav[:,:sumdur*self.hop_length]
         elif spec.shape[-1] < sumdur:
             spec_pad = torch.zeros([spec.shape[0], sumdur])
+            wav_pad = torch.zeros([1, sumdur*self.hop_length])
             spec_pad[:, :spec.shape[-1]] = spec
+            wav_pad[:, :wav.shape[-1]] = wav
             spec = spec_pad
+            wav = wav_pad
         assert phonemes.shape ==f0.shape==phn_dur.shape==energy.shape, wav_path
+        assert sumdur == wav.shape[-1]//self.hop_length
         return phonemes,f0, phn_dur, spec, wav, spk,energy
 
     def get_phonemes(self, phonemes):
