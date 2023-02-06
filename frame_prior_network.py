@@ -63,7 +63,7 @@ class VariancePredictor(nn.Module):
 
         self.input_size = input_size
         self.filter_size = 768
-        self.kernel = 5
+        self.kernel = 3
         self.conv_output_size = 768
         self.dropout = 0.5
 
@@ -110,49 +110,19 @@ class VariancePredictor(nn.Module):
 
 
 class EnergyPredictor(nn.Module):
-    def __init__(self, input_size, gin_channels, energy_min, energy_max, energy_mean, energy_std):
+    def __init__(self, input_size, gin_channels):
         super(EnergyPredictor, self).__init__()
-        self.mean = energy_mean
-        self.std = energy_std
         self.predictor = VariancePredictor(input_size)
-        self.energy_bins = nn.Parameter(
-            torch.linspace(energy_min, energy_max, 256 - 1),
-            requires_grad=False,
-        )
-        self.energy_embedding = nn.Embedding(
-            256, input_size
-        )
         if gin_channels != 0:
             self.cond = nn.Conv1d(gin_channels, input_size, 1)
 
-    def normalize(self, energy):
-        return (energy - self.mean) / self.std
-
-    def denormalize(self, norm_energy):
-        return norm_energy * self.std + self.mean
-
-    def forward(self, encoder_output, energy, g):
+    def forward(self, encoder_output, g):
         g = torch.detach(g)
         encoder_output = encoder_output + self.cond(g)
-
         pred_norm_energy = self.predictor(encoder_output)
 
-        norm_energy = self.normalize(energy)
-        embedding = self.energy_embedding(torch.bucketize(norm_energy, self.energy_bins)).transpose(1, 2)
-        l_energy = F.mse_loss(norm_energy, pred_norm_energy)
-        return pred_norm_energy,norm_energy, embedding,l_energy
+        return pred_norm_energy
 
-    def infer(self, encoder_output, g, control=None):
-        g = torch.detach(g)
-        encoder_output = encoder_output + self.cond(g)
-
-        pred_norm_energy = self.predictor(encoder_output)
-
-        if control is None:
-            control = 1
-        pred_energy = self.denormalize(pred_norm_energy) * control
-        embedding = self.energy_embedding(torch.bucketize(self.normalize(pred_energy), self.energy_bins)).transpose(1, 2)
-        return embedding
 
 class Swish(nn.Module):
     """
