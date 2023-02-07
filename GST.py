@@ -49,7 +49,7 @@ class Hyperparameters():
     ref_enc_gru_size = E // 2
 
     # style token layer
-    token_num = 25
+    token_num = 10
     # token_emb_size = 256
     num_heads = 8
     # multihead_attn_num_unit = 256
@@ -207,15 +207,3 @@ class GST(nn.Module):
         style_embed = self.stl(enc_out)
 
         return style_embed
-
-
-if __name__ == '__main__':
-    spec = torch.zeros([8, 1025, 454])
-    gst = GST()
-    prenet = nn.Conv1d(1025, 80, 3, 1)
-    mel = prenet(spec)
-    print(mel.shape)
-    print(gst(mel).transpose(1,2).shape)
-
-    torch.save(gst.state_dict(), "gst.pth")
-
