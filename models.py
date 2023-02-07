@@ -497,7 +497,7 @@ class PitchPredictor(nn.Module):
             hidden_channels,
             filter_channels,
             n_heads,
-            n_layers,
+            6,
             kernel_size,
             p_dropout)
         self.proj_f0 = nn.Conv1d(hidden_channels, 1, 1)
