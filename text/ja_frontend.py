@@ -4,7 +4,7 @@ from unidecode import unidecode
 import pyopenjtalk
 
 
-from text.symbols import remove_invalid_phonemes,pu_symbols, symbols
+from text.symbols import pu_symbols, symbols
 
 # Regular expression matching Japanese without punctuation marks:
 _japanese_characters = re.compile(
@@ -97,4 +97,4 @@ def ja_to_phonemes(text):
         if i not in symbols+["-"]:
             print(text)
             print("debug jap: missing ", i)
-    return remove_invalid_phonemes(jap_phs)
+    return jap_phs

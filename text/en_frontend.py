@@ -3,8 +3,6 @@ from string import punctuation
 import re
 from g2p_en import G2p
 
-from text.symbols import remove_invalid_phonemes
-
 
 def en_to_phonemes(text):
     text = text.rstrip(punctuation)
@@ -18,7 +16,7 @@ def en_to_phonemes(text):
         else:
             phones += list(filter(lambda p: p != " ", g2p(w)))
 
-    return remove_invalid_phonemes(phones)
+    return phones
 
 
 def read_lexicon(lex_path):

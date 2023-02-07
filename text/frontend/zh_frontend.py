@@ -36,7 +36,7 @@ class Frontend():
         self.tone_modifier = ToneSandhi()
         self.text_normalizer = TextNormalizer()
 
-        self.punc = ['!', '?', '…', ",", ".", "#"]
+        self.punc = ['!', '?', '…', ",", ".", "#", '-']
         # g2p_model can be pypinyin and g2pM
         self.g2p_model = g2p_model
         self.add_word_sep = False
@@ -257,7 +257,7 @@ class Frontend():
     def get_phonemes(self,
                      sentence: str,
                      merge_sentences: bool=True,
-                     with_erhua: bool=True,
+                     with_erhua: bool=False,
                      robot: bool=False,
                      print_info: bool=False) -> List[List[str]]:
         sentence = sentence.replace("嗯", "恩")

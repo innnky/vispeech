@@ -1,6 +1,5 @@
 
 from text.frontend.zh_frontend import Frontend
-from text.symbols import remove_invalid_phonemes
 frontend = Frontend()
 
 
@@ -35,7 +34,7 @@ def zh_to_phonemes(text):
     # 替换标点为英文标点
     text = pu_symbol_replace(text)
     phones = frontend.get_phonemes(text)[0]
-    return remove_invalid_phonemes(phones)
+    return phones
 
 
 def pinyin_to_phonemes(text):

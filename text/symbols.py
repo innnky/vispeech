@@ -1,5 +1,4 @@
-import os.path
-pu_symbols = ['!', '?', '…', ",", "."]
+pu_symbols = ['!', '?', '…', ",", ".", "sp"]
 ja_symbols = [
     # japanese-common
     'ts.', 'f.', 'sh.', 'ry.', 'py.', 'h.', 'p.', 'N.', 'a.', 'm.', 'w.', 'ky.',
@@ -8,28 +7,18 @@ ja_symbols = [
     # japanese-unique
     'gy.', 'my.', 'hy.', 'br', 'by.', 'v.', 'ty.', 'xx.', 'U.', 'I.', 'dy.'
 ]
-
-op_symbols = [
-    'a', 'ai', 'an', 'ang', 'ao', 'e', 'ei', 'en', 'eng', 'er', 'iii', 'ii', 'i', 'ia', 'ian', 'iang', 'iao', 'ie', 'in', 'ing', 'iong', 'iou', 'o', 'ong', 'ou', 'u', 'ua', 'uai', 'uan', 'uang', 'uei', 'uen', 'ueng', 'uo', 'v', 'van', 've', 'vn', 'AH', 'AA', 'AO', 'ER', 'IH', 'IY', 'UH', 'UW', 'EH', 'AE', 'AY', 'EY', 'OY', 'AW', 'OW', 'AH3', 'AA3', 'AO3', 'ER3', 'IH3', 'IY3', 'UH3', 'UW3', 'EH3', 'AE3', 'AY3', 'EY3', 'OY3', 'AW3', 'OW3', 'D-1', 'T-1', 'P*', 'B*', 'T*', 'D*', 'K*', 'G*', 'M*', 'N*', 'NG*', 'L*', 'S*', 'Z*', 'Y*', 'DH*', 'SH*', 'ZH*', 'CH*', 'JH*', 'V*', 'W*', 'F*', 'R*', 'HH*', 'or', 'ar', 'aor', 'our', 'angr', 'eir', 'engr', 'air', 'ianr', 'iaor', 'ir', 'ingr', 'ur', 'iiir', 'uar', 'uangr', 'uenr', 'iir', 'ongr', 'uor', 'ueir', 'iar', 'iangr', 'inr', 'iour', 'vr', 'uanr', 'ruai', 'TR', 'rest', 'w', 'SP', 'AP', 'un', 'y', 'ui', 'iu', 'iour', 'vr', 'uanr', 'ruai', 'TR', 'rest', 'w', 'SP', 'AP', 'un', 'y', 'ui', 'iu', 'i0', 'E', 'En',
+en_symbols = [
+    'AA0', 'AA1', 'AA2', 'AE0', 'AE1', 'AE2', 'AH0', 'AH1', 'AH2', 'AO0', 'AO1', 'AO2', 'AW0', 'AW1', 'AW2', 'AY0',
+    'AY1', 'AY2', 'B', 'CH', 'D', 'DH', 'EH0', 'EH1', 'EH2', 'ER0', 'ER1', 'ER2', 'EY0', 'EY1', 'EY2', 'F', 'G', 'HH',
+    'IH0', 'IH1', 'IH2', 'IY0', 'IY1', 'IY2', 'JH', 'K', 'L', 'M', 'N', 'NG', 'OW0', 'OW1', 'OW2', 'OY0', 'OY1', 'OY2',
+    'P', 'R', 'S', 'SH', 'T', 'TH', 'UH0', 'UH1', 'UH2', 'UW0', 'UW1', 'UW2', 'V', 'W', 'Y', 'Z', 'ZH'
 ]
+zh_symbols = [
+    'a1', 'a2', 'a3', 'a4', 'a5', 'ai1', 'ai2', 'ai3', 'ai4', 'ai5', 'air1', 'air2', 'air3', 'air4', 'air5', 'an1',
+    'an2', 'an3', 'an4', 'an5', 'ang1', 'ang2', 'ang3', 'ang4', 'ang5', 'angr1', 'angr2', 'angr3', 'angr4', 'angr5',
+    'anr1', 'anr2', 'anr3', 'anr4', 'anr5', 'ao1', 'ao2', 'ao3', 'ao4', 'ao5', 'aor1', 'aor2', 'aor3', 'aor4', 'aor5',
+    'ar1', 'ar2', 'ar3', 'ar4', 'ar5', 'b', 'c', 'ch', 'd', 'e1', 'e2', 'e3', 'e4', 'e5', 'ei1', 'ei2', 'ei3', 'ei4', 'ei5', 'eir1', 'eir2', 'eir3', 'eir4', 'eir5', 'en1', 'en2', 'en3', 'en4', 'en5', 'eng1', 'eng2', 'eng3', 'eng4', 'eng5', 'engr1', 'engr2', 'engr3', 'engr4', 'engr5', 'enr1', 'enr2', 'enr3', 'enr4', 'enr5', 'er1', 'er2', 'er3', 'er4', 'er5', 'f', 'g', 'h', 'i1', 'i2', 'i3', 'i4', 'i5', 'ia1', 'ia2', 'ia3', 'ia4', 'ia5', 'ian1', 'ian2', 'ian3', 'ian4', 'ian5', 'iang1', 'iang2', 'iang3', 'iang4', 'iang5', 'iangr1', 'iangr2', 'iangr3', 'iangr4', 'iangr5', 'ianr1', 'ianr2', 'ianr3', 'ianr4', 'ianr5', 'iao1', 'iao2', 'iao3', 'iao4', 'iao5', 'iaor1', 'iaor2', 'iaor3', 'iaor4', 'iaor5', 'iar1', 'iar2', 'iar3', 'iar4', 'iar5', 'ie1', 'ie2', 'ie3', 'ie4', 'ie5', 'ier1', 'ier2', 'ier3', 'ier4', 'ier5', 'ii1', 'ii2', 'ii3', 'ii4', 'ii5', 'iii1', 'iii2', 'iii3', 'iii4', 'iii5', 'iiir1', 'iiir2', 'iiir3', 'iiir4', 'iiir5', 'iir1', 'iir2', 'iir3', 'iir4', 'iir5', 'in1', 'in2', 'in3', 'in4', 'in5', 'ing1', 'ing2', 'ing3', 'ing4', 'ing5', 'ingr1', 'ingr2', 'ingr3', 'ingr4', 'ingr5', 'inr1', 'inr2', 'inr3', 'inr4', 'inr5', 'io1', 'io2', 'io3', 'io4', 'io5', 'iong1', 'iong2', 'iong3', 'iong4', 'iong5', 'iongr1', 'iongr2', 'iongr3', 'iongr4', 'iongr5', 'ior1', 'ior2', 'ior3', 'ior4', 'ior5', 'iou1', 'iou2', 'iou3', 'iou4', 'iou5', 'iour1', 'iour2', 'iour3', 'iour4', 'iour5', 'ir1', 'ir2', 'ir3', 'ir4', 'ir5', 'j', 'k', 'l', 'm', 'n', 'o1', 'o2', 'o3', 'o4', 'o5', 'ong1', 'ong2', 'ong3', 'ong4', 'ong5', 'ongr1', 'ongr2', 'ongr3', 'ongr4', 'ongr5', 'or1', 'or2', 'or3', 'or4', 'or5', 'ou1', 'ou2', 'ou3', 'ou4', 'ou5', 'our1', 'our2', 'our3', 'our4', 'our5', 'p', 'q', 'r', 's', 'sh', 't', 'u1', 'u2', 'u3', 'u4', 'u5', 'ua1', 'ua2', 'ua3', 'ua4', 'ua5', 'uai1', 'uai2', 'uai3', 'uai4', 'uai5', 'uair1', 'uair2', 'uair3', 'uair4', 'uair5', 'uan1', 'uan2', 'uan3', 'uan4', 'uan5', 'uang1', 'uang2', 'uang3', 'uang4', 'uang5', 'uangr1', 'uangr2', 'uangr3', 'uangr4', 'uangr5', 'uanr1', 'uanr2', 'uanr3', 'uanr4', 'uanr5', 'uar1', 'uar2', 'uar3', 'uar4', 'uar5', 'uei1', 'uei2', 'uei3', 'uei4', 'uei5', 'ueir1', 'ueir2', 'ueir3', 'ueir4', 'ueir5', 'uen1', 'uen2', 'uen3', 'uen4', 'uen5', 'ueng1', 'ueng2', 'ueng3', 'ueng4', 'ueng5', 'uengr1', 'uengr2', 'uengr3', 'uengr4', 'uengr5', 'uenr1', 'uenr2', 'uenr3', 'uenr4', 'uenr5', 'uo1', 'uo2', 'uo3', 'uo4', 'uo5', 'uor1', 'uor2', 'uor3', 'uor4', 'uor5', 'ur1', 'ur2', 'ur3', 'ur4', 'ur5', 'v1', 'v2', 'v3', 'v4', 'v5', 'van1', 'van2', 'van3', 'van4', 'van5', 'vanr1', 'vanr2', 'vanr3', 'vanr4', 'vanr5', 've1', 've2', 've3', 've4', 've5', 'ver1', 'ver2', 'ver3', 'ver4', 'ver5', 'vn1', 'vn2', 'vn3', 'vn4', 'vn5', 'vnr1', 'vnr2', 'vnr3', 'vnr4', 'vnr5', 'vr1', 'vr2', 'vr3', 'vr4', 'vr5', 'x', 'z', 'zh'
+]
+symbols =["_"] + zh_symbols + ja_symbols + en_symbols + pu_symbols
 
-symbols =['sp', 'sil', 'spn', 'iang2', 'eir3', 'g', 'vanr4', 'eng4', 'ueir1', 'ian3', 'z', 'uor2', 'van4', 'aor4', 'or3', 'i1', 'uangr4', 'ingr4', 'ur4', 'ior1', 'iongr1', 'iangr3', 'uengr5', 'eng3', 'd', 'uengr2', 'ingr5', 'iang3', 'ang4', 'air2', 'c', 'ian5', 'ianr3', 'an4', 'iangr2', 'uai4', 'uanr4', 'iiir1', 'u4', 'van3', 'iaor1', 'iour1', 'our3', 'iangr4', 'engr2', 'air5', 'vn1', 'uar5', 'ou1', 'ai5', 'inr3', 'ar5', 'engr5', 'uor3', 'o2', 'iou4', 'uenr2', 'iongr5', 'iaor4', 'iao1', 'uei1', 'ongr3', 'h', 'e2', 'iou3', 'ua3', 'ianr5', 'u1', 'ang2', 'uo2', 'ia5', 've3', 'iar4', 'vn5', 'enr5', 'ir5', 'i3', 'iaor3', 'our2', 'ver1', 'ueir2', 'ao3', 'uan4', 'ua2', 'io5', 'io4', 'inr1', 'enr2', 'ei5', 'ii3', 'an3', 'uor4', 'iou2', 'u3', 'uangr3', 'ur3', 'o5', 'uai1', 've2', 'vr4', 'iou1', 'in1', 'ian4', 'e1', 'eng2', 'iao4', 'or1', 'ing3', 'uo3', 'vnr2', 'inr4', 'angr1', 'uan2', 'ai4', 'eng5', 'uang2', 'vanr3', 'anr1', 'ie3', 'iar1', 'uo5', 'q', 'iiir2', 'uen1', 'uen5', 'ai1', 'en2', 'uai3', 'our5', 'ingr3', 'ii5', 'uor1', 'i4', 'uar2', 'uan3', 'uengr1', 'iour4', 'aor3', 'er2', 'ianr1', 'eir2', 'van1', 'uo1', 'ueng4', 'r', 'ar2', 'iou5', 'er3', 'ar1', 'ie5', 'uangr1', 'uenr5', 'eir4', 'or4', 'ier3', 'ier1', 'iangr5', 'ch', 'air1', 'vnr1', 'uang1', 'ie1', 'ueng3', 'iir1', 'ao5', 'in4', 'van5', 'er5', 'iir5', 'anr5', 'iong1', 'ang5', 'iiir5', 'eir5', 'iar5', 'ior3', 'vr2', 'an1', 'uai2', 'zh', 'e4', 'm', 'vn4', 'an2', 'ueir4', 'uang5', 'iar3', 'ing2', 'iong5', 'ver3', 'iong3', 'ueng5', 'ei3', 'vn2', 'our4', 'x', 'ir2', 'vnr3', 'sh', 'uor5', 'iang1', 'uanr2', 'angr4', 'iii2', 'uei4', 'v1', 've4', 'uenr3', 've5', 'engr4', 'en4', 'uang4', 'ver2', 'ia2', 'ver4', 'ir1', 'ua4', 'vnr5', 'uo4', 'en1', 'or2', 'iang4', 'uan1', 'e3', 'ao4', 'ou3', 'ao2', 'our1', 'io3', 'or5', 'uenr4', 'ing4', 'ia3', 'ueng2', 'ia1', 'enr1', 'engr1', 'ar4', 'ier2', 've1', 'aor2', 'uengr4', 'ur5', 'ang1', 'ei2', 'ua1', 'ueir3', 'ian2', 'iour5', 'a3', 'i5', 'ian1', 'en5', 'uar4', 'ir3', 'l', 'uar1', 'iour3', 'v5', 'ur1', 'o3', 'ong3', 'n', 'io1', 'uangr2', 'ianr4', 'ie2', 'ii1', 'anr3', 'j', 'uanr3', 'in2', 'ou5', 'ior2', 'ingr1', 'in5', 'iiir4', 'b', 'uei2', 'iii3', 'ueng1', 'ei4', 'o4', 'inr2', 'vr3', 'ei1', 'uair5', 'ianr2', 'uen2', 'uei3', 'vr5', 'inr5', 'o1', 'eng1', 'ai3', 'iongr4', 'angr3', 'ong1', 'iangr1', 'iang5', 'aor1', 'ing5', 'iongr2', 'iiir3', 'ii4', 'ong2', 'ou2', 'en3', 'an5', 'eir1', 'v2', 'iong4', 'iir2', 'p', 'uanr5', 'uar3', 'uangr5', 't', 'ongr1', 'uair3', 'iaor2', 'io2', 'vanr1', 'e5', 'uen4', 'uan5', 'vanr2', 'u2', 'ang3', 'iii1', 'v4', 'anr4', 'engr3', 'ver5', 'ii2', 'iir3', 'uair1', 'ier4', 'er4', 'iao2', 'ou4', 'a5', 'a4', 'ongr2', 'ongr5', 'vn3', 'v3', 'iii5', 'angr5', 'i2', 'ir4', 'uengr3', 'er1', 'ior5', 'vanr5', 'ong5', 'iong2', 'ier5', 'ior4', 'air3', 'ai2', 'u5', 'iour2', 'k', 'van2', 'ar3', 'vr1', 'ia4', 'f', 'iaor5', 'ur2', 'a2', 'enr4', 'uanr1', 'iir4', 'uair2', 's', 'ua5', 'ueir5', 'a1', 'iao5', 'iar2', 'uenr1', 'vnr4', 'angr2', 'ing1', 'iao3', 'uang3', 'air4', 'ongr4', 'iongr3', 'iii4', 'in3', 'uen3', 'uei5', 'ie4', 'enr3', 'aor5', 'uai5', 'ao1', 'ong4', 'anr2', 'ingr2', 'uair4', 'N', 'AA2', 'EH0', 'AO0', 'EY1', 'AE2', 'AY0', 'ER0', 'HH', 'K', 'SH', 'AY1', 'OY2', 'M', 'UW1', 'AH2', 'AO1', 'AW0', 'AY2', 'EY2', 'F', 'JH', 'OW1', 'W', 'ER1', 'AA0', 'DH', 'OW2', 'UW2', 'OW0', 'B', 'AH0', 'IH0', 'EH1', 'AW2', 'UH0', 'ZH', 'P', 'R', 'V', 'Y', 'ER2', 'CH', 'UW0', 'UH2', 'AO2', 'IH2', 'AE1', 'NG', 'AH1', 'AE0', 'S', 'L', 'IY0', 'G', 'IY1', 'IH1', 'IY2', 'TH', 'Z', 'AW1', 'AA1', 'T', 'OY0', 'D', 'EY0', 'UH1', 'EH2', 'OY1']
-symbols =["_"] + symbols + pu_symbols + ja_symbols + op_symbols
 
-source = ["-", "--"]
-target = ["sp", "sp"]
-
-mapping = dict(zip(source, target))
-def post_replace(input_element):
-    return mapping.get(input_element, input_element)
-
-def remove_invalid_phonemes(phonemes):
-    # 移除未识别的音素符号
-    new_phones = []
-    for ph in phonemes:
-        ph = post_replace(ph)
-        if ph in symbols:
-            new_phones.append(ph)
-        else:
-            print("skip：", ph)
-    return new_phones
