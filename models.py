@@ -618,10 +618,6 @@ class SynthesizerTrn(nn.Module):
 
     def forward(self, phonemes, phonemes_lengths, f0, energy, phndur, spec, spec_lengths, sid=None):
 
-        # if self.n_speakers > 0:
-        #     g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
-        # else:
-        #     g = None
         g = self.gst(self.gst_prenet(spec)).transpose(1,2)
         # 文本编码
         x, x_mask = self.enc_p(phonemes, phonemes_lengths)
@@ -664,13 +660,11 @@ class SynthesizerTrn(nn.Module):
         return o, l_length, l_pitch, l_energy, ids_slice, x_mask, y_mask, (
             z, z_p, m_p, logs_p, m_q, logs_q), pred_f0, pred_norm_energy, norm_energy
 
-    def infer(self, phonemes, phonemes_lengths, spec,
-              sid=None, noise_scale=1, max_len=None, energy_control=None, pitch_control=None,duration_control=None):
-        # if self.n_speakers > 0:
-        #     g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
-        # else:
-        #     g = None
-        g = self.gst(self.gst_prenet(spec)).transpose(1,2)
+    def infer(self, phonemes, phonemes_lengths, spec=None,
+              g=None, noise_scale=1, max_len=None, energy_control=None, pitch_control=None,duration_control=None):
+
+        if g is None:
+            g = self.gst(self.gst_prenet(spec)).transpose(1,2)
 
         x, x_mask = self.enc_p(phonemes, phonemes_lengths)
 
