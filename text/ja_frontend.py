@@ -92,9 +92,9 @@ def preprocess_jap(text):
 
 def ja_to_phonemes(text):
     jap_phs = preprocess_jap(text)
-    jap_phs = [i+"." if i not in pu_symbols+["pau"] else i for i in jap_phs if i !=""]
+    jap_phs = [i+"." if i not in pu_symbols+["pau", "-"] else i for i in jap_phs if i !=""]
     for i in jap_phs:
-        if i not in symbols:
+        if i not in symbols+["-"]:
             print(text)
             print("debug jap: missing ", i)
     return remove_invalid_phonemes(jap_phs)

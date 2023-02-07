@@ -19,7 +19,7 @@ def process_text(line):
     phones = " ".join(phones)
     return (id_, phones)
 
-lang = "en"
+lang = "zh"
 if __name__ == '__main__':
     # for spk in os.listdir("data"):
     #     if os.path.exists(f"data/{spk}/transcription_raw.txt"):
@@ -32,15 +32,15 @@ if __name__ == '__main__':
     #                 with open(f"mfa_temp/wavs/{spk}/{id_}.txt", "w") as o:
     #                     o.write(phones+"\n")
     with ProcessPoolExecutor(max_workers=int(cpu_count()) // 2) as executor:
-        for spk in os.listdir("data"):
-            if os.path.exists(f"data/{spk}/transcription_raw.txt"):
+        for spk in os.listdir(f"data/{lang}"):
+            if os.path.exists(f"data/{lang}/{spk}/transcription_raw.txt"):
                 os.makedirs(f"mfa_temp/wavs/{lang}/{spk}", exist_ok=True)
-                lines = open(f"data/{spk}/transcription_raw.txt").readlines()
+                lines = open(f"data/{lang}/{spk}/transcription_raw.txt").readlines()
                 futures = [executor.submit(process_text, line) for line in lines]
                 for x in tqdm.tqdm(as_completed(futures), total=len(lines)):
                     id_, phones = x._result
                     try:
-                        wav, sr = librosa.load(f"data/{spk}/wavs/{id_}.wav", sr=44100)
+                        wav, sr = librosa.load(f"data/{lang}/{spk}/wavs/{id_}.wav", sr=44100)
                         soundfile.write(f"mfa_temp/wavs/{lang}/{spk}/{id_}.wav", wav, sr)
                         with open(f"mfa_temp/wavs/{lang}/{spk}/{id_}.txt", "w") as o:
                             o.write(phones + "\n")
@@ -55,5 +55,5 @@ if __name__ == '__main__':
     #     phones = " ".join(phones)
     #     with open(f"mfa_temp/wavs/jsut/{id_}.txt", "w") as o:
     #         o.write(phones + "\n")
-    print("rm -rf ./mfa_temp/temp; mfa align mfa_temp/wavs/ mfa_temp/zh_dict.dict mfa_temp/aishell3_model.zip mfa_temp/textgrids/ --clean --overwrite -t ./mfa_temp/temp -j 5")
+    print("rm -rf ./mfa_temp/temp; mfa align mfa_temp/wavs/zh mfa_temp/zh_dict.dict mfa_temp/aishell3_model.zip mfa_temp/textgrids/zh --clean --overwrite -t ./mfa_temp/temp -j 5")
     print("rm -rf ./mfa_temp/temp; mfa train mfa_temp/wavs/ja/ mfa_temp/ja_dict.dict mfa_temp/model.zip mfa_temp/textgrids/ja --clean --overwrite -t ./mfa_temp/temp -j 5")

@@ -33,7 +33,7 @@ def get_sp(frames, is_last, is_first):
     if is_first:
         return "sp"
     if is_last:
-        if random.random()<0.3:
+        if random.random()<0.8:
             return "sp"
         else:
             return "."
