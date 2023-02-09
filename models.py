@@ -455,7 +455,7 @@ class FramePriorNet(nn.Module):
 
         self.emb = nn.Embedding(121, hidden_channels)
 
-        self.fft_block = attentions.FFT(
+        self.fft_block = attentions.Encoder(
             hidden_channels,
             filter_channels,
             n_heads,
