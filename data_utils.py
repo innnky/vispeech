@@ -28,7 +28,6 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         self.hop_length     = hparams.hop_length
         self.win_length     = hparams.win_length
         self.sampling_rate  = hparams.sampling_rate
-        self.spk_map = hparams.spk2id
 
         # self.add_blank = hparams.add_blank
         # self.min_text_len = getattr(hparams, "min_text_len", 1)
@@ -57,8 +56,7 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
             # get_size获取文件大小（字节数），这里计算wav的长度，根据上方计算公式得出结果
             wav_path = f"dataset/{spk}/{id_}.wav"
             lengths.append(os.path.getsize(wav_path) // (2 * self.hop_length))
-            sid = self.spk_map[spk]
-            audiopath_and_text_new.append([wav_path, spk, id_,sid, phonemes, durations, pitch, energy])
+            audiopath_and_text_new.append([wav_path, spk, id_,0, phonemes, durations, pitch, energy])
         self.lengths = lengths
         self.audiopaths_and_text = audiopath_and_text_new
 

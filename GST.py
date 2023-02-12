@@ -49,7 +49,7 @@ class Hyperparameters():
     ref_enc_gru_size = E // 2
 
     # style token layer
-    token_num = 25
+    token_num = 10
     # token_emb_size = 256
     num_heads = 8
     # multihead_attn_num_unit = 256
@@ -137,9 +137,9 @@ class STL(nn.Module):
     '''
     inputs --- [N, E//2]
     '''
-    def __init__(self, hp):
+    def __init__(self, hp,token_num):
         super().__init__()
-        self.embed = nn.Parameter(torch.FloatTensor(hp.token_num, hp.E // hp.num_heads))
+        self.embed = nn.Parameter(torch.FloatTensor(token_num, hp.E // hp.num_heads))
         d_q = hp.E // 2
         d_k = hp.E // hp.num_heads
         self.attention = MultiHeadAttention(query_dim=d_q, key_dim=d_k, num_units=hp.E, num_heads=hp.num_heads)
@@ -196,11 +196,11 @@ class MultiHeadAttention(nn.Module):
 
 
 class GST(nn.Module):
-    def __init__(self):
+    def __init__(self, token_num):
         super().__init__()
 
         self.encoder = ReferenceEncoder(Hyperparameters)
-        self.stl = STL(Hyperparameters)
+        self.stl = STL(Hyperparameters,token_num)
 
     def forward(self, inputs):
         enc_out = self.encoder(inputs)

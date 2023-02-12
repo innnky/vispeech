@@ -555,6 +555,7 @@ class SynthesizerTrn(nn.Module):
                  upsample_rates,
                  upsample_initial_channel,
                  upsample_kernel_sizes,
+                 token_num,
                  n_speakers=0,
                  gin_channels=0,
                  use_sdp=False,
@@ -611,10 +612,8 @@ class SynthesizerTrn(nn.Module):
 
         self.pitch_prenet = nn.Conv1d(1, hidden_channels, 3, padding=1)
         self.energy_prenet = nn.Conv1d(1, hidden_channels, 3, padding=1)
-        self.gst = GST()
+        self.gst = GST(token_num)
         self.gst_prenet = nn.Conv1d(1025, 80, 3, 1)
-        if n_speakers > 1:
-            self.emb_g = nn.Embedding(n_speakers, gin_channels)
 
     def forward(self, phonemes, phonemes_lengths, f0, energy, phndur, spec, spec_lengths, sid=None):
 
