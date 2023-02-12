@@ -556,6 +556,8 @@ class SynthesizerTrn(nn.Module):
                  n_speakers=0,
                  gin_channels=0,
                  use_sdp=False,
+                 freeze_textencoder=False,
+                 freeze_decoder=False,
                  **kwargs):
 
         super().__init__()
@@ -612,6 +614,12 @@ class SynthesizerTrn(nn.Module):
 
         if n_speakers > 1:
             self.emb_g = nn.Embedding(n_speakers, gin_channels)
+        if freeze_textencoder:
+            for param in self.enc_p.named_parameters():
+                param[1].requires_grad = False
+        if freeze_decoder:
+            for param in self.dec.named_parameters():
+                param[1].requires_grad = False
 
     def forward(self, phonemes, phonemes_lengths, f0, energy, phndur, spec, spec_lengths, sid=None):
 

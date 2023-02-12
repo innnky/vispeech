@@ -51,6 +51,8 @@
     "use_spectral_norm": false,
     "gin_channels": 256,
     "f0_mean": 171.21,
-    "f0_std": 128.9
+    "f0_std": 128.9,
+    "freeze_textencoder": false,
+    "freeze_decoder": false
   }
 }
