@@ -15,9 +15,9 @@ for spk, lines in spk2utts.items():
     val_lines+=lines[-val_n_per_spk:]
     train_lines+=lines[:-val_n_per_spk]
 
-with open("filelists/train.txt", "w") as f:
+with open("filelists/train.list", "w") as f:
     for line in train_lines:
         f.write(line)
-with open("filelists/val.txt", "w") as f:
+with open("filelists/val.list", "w") as f:
     for line in val_lines:
         f.write(line)

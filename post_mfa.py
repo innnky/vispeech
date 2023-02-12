@@ -161,15 +161,16 @@ with open(f"filelists/{lang}.dur", "w") as out_file:
                         textgrid.get_tier_by_name("phones")
                     )
                     id_ = txgridname.replace(".TextGrid", "")
-                    # try:
-                    if label_refine:
-                        label = open(f"mfa_temp/wavs/{lang}/{spk}/{id_}.txt").read()
-                        phone = refine_from_labels(phone, duration, label)
-                    else:
-                        phone, duration = refine(phone, duration)
-                    # except:
-                    #     print(align_root, txgridname)
-                    #     continue
+                    phone = ["sp" if ph in silence_symbol else ph for ph in phone]
+                    try:
+                        if label_refine:
+                            label = open(f"mfa_temp/wavs/{lang}/{spk}/{id_}.txt").read()
+                            phone = refine_from_labels(phone, duration, label)
+                        else:
+                            phone, duration = refine(phone, duration)
+                    except:
+                        print("错误，请检查：", align_root, txgridname)
+                        continue
                     ph = " ".join(phone)
                     du = " ".join([str(i) for i in duration])
                     ph = ph.replace("JA", ".")

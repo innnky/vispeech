@@ -83,9 +83,9 @@ with open(f"filelists/{lang}_train.list" ,"w") as outfile:
                 fill_value=(pitch[nonzero_ids[0]], pitch[nonzero_ids[-1]]),
                 bounds_error=False,
             )
+            pitch = interp_fn(np.arange(0, len(pitch)))
         except:
-            continue
-        pitch = interp_fn(np.arange(0, len(pitch)))
+            pass
         pos = 0
         for i, d in enumerate(durations):
             if d > 0:
@@ -111,7 +111,7 @@ with open(f"filelists/{lang}_train.list" ,"w") as outfile:
 
         phones = " ".join(phones)
         durations = " ".join([str(i) for i in durations])
-        # shutil.move(wav_path, target_path)
+        shutil.move(wav_path, target_path)
         print(iii, wav_path)
         outfile.write(f"{spk}|{id_}|{phones}|{durations}|{nphf0}|{phenergy}\n")
         #
