@@ -703,7 +703,7 @@ class SynthesizerTrn(nn.Module):
         else:
             if energy_control is None:
                 energy_control = 1
-            norm_energy = self.energy_predictor(x, g) * energy_control
+            norm_energy = (((self.energy_predictor(x, g) * 36 + 60 ) * energy_control) - 60) / 36
         x += self.energy_prenet(norm_energy.unsqueeze(1))
         energy = norm_energy * 36 + 60
 
