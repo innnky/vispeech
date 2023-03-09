@@ -1,13 +1,13 @@
 # visinger-speech
 
 基于fs2、vits、visinger的tts模型
-
 （暂时还在开发调试中）
+（效果暂时依旧不太满意）
 
 [//]: # (音频sample见[samples]&#40;/samples&#41;)
 ## 模型结构
 总的来说基本就是将fastspeech2的VarianceAdapter结构添加进了vits
-![](assets/network.png)
+
 ## 相比于原版vits
 + 删除了 Monotonoic Alignment， 使用MFA对齐后输入时长
 + 添加了音素级 F0Predictor，EnergyPredictor
